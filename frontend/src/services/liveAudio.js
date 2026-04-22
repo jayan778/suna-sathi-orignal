@@ -1,7 +1,21 @@
 const AUDIOBASE = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/uploads`;
 
-// 3 minutes in seconds — matches server-side cap
-const SONG_CAP_SECONDS = 3 * 60;
+/**
+ * Build a correct audio URL from a song.file path like "audio/filename.mp3"
+ * IMPORTANT: Do NOT use encodeURIComponent on the full path — it encodes
+ * the slash, turning "audio/file.mp3" into "audio%2Ffile.mp3" which breaks.
+ * Only encode the filename portion, keeping the directory slash intact.
+ */
+function buildAudioUrl(file) {
+  if (!file) return "";
+  const slashIdx = file.indexOf("/");
+  if (slashIdx === -1) {
+    return `${AUDIOBASE}/${encodeURIComponent(file)}`;
+  }
+  const dir      = file.slice(0, slashIdx);       // e.g. "audio"
+  const filename = file.slice(slashIdx + 1);      // e.g. "track.mp3"
+  return `${AUDIOBASE}/${dir}/${encodeURIComponent(filename)}`;
+}
 
 class LiveAudioManager {
   constructor() {
@@ -15,9 +29,10 @@ class LiveAudioManager {
     this._normalSong  = null;
     this._liveActive  = false;
     this._liveSrc     = null;
+    this._normalSrc   = null;
 
-    // Track when current live song started (client side) for 3-min UI cap
-    this._liveSongStartedAt = null;
+    // Strict mode: "live" | "normal" | null
+    this._activeMode = null;
   }
 
   // ── Lazy element creation ──────────────────────────────
@@ -28,14 +43,14 @@ class LiveAudioManager {
       this._live.setAttribute("playsinline", "");
       this._live.setAttribute("webkit-playsinline", "");
 
-      this._live.addEventListener("timeupdate", () => {
-        // Cap reported currentTime to SONG_CAP_SECONDS for the UI
-        this._notifyLive();
-      });
+      this._live.addEventListener("timeupdate",     () => { this._notifyLive(); });
       this._live.addEventListener("play",           () => { this._notifyLive("play"); });
       this._live.addEventListener("pause",          () => { this._notifyLive("pause"); });
       this._live.addEventListener("ended",          () => { this._notifyLive("ended"); });
       this._live.addEventListener("loadedmetadata", () => { this._notifyLive("meta"); });
+      this._live.addEventListener("error",          () => {
+        console.error("[LiveAudio] Live element error. src:", this._live?.src);
+      });
     }
     return this._live;
   }
@@ -50,6 +65,9 @@ class LiveAudioManager {
       this._normal.addEventListener("pause",          () => { this._notifyNormal("pause"); });
       this._normal.addEventListener("ended",          () => { this._notifyNormal("ended"); });
       this._normal.addEventListener("loadedmetadata", () => { this._notifyNormal("meta"); });
+      this._normal.addEventListener("error",          () => {
+        console.error("[LiveAudio] Normal element error. src:", this._normal?.src);
+      });
     }
     return this._normal;
   }
@@ -70,74 +88,64 @@ class LiveAudioManager {
 
   // ── LIVE controls ──────────────────────────────────────
 
-  /**
-   * Load and play a live stream song, seeking to `seekTo` seconds.
-   * seekTo is already capped at 3 min by the server.
-   */
   async loadLiveAndPlay(song, seekTo = 0) {
     if (!song?.file) return;
 
-    // Pause normal audio — do NOT destroy it
+    // Strictly stop normal audio
     const normal = this._getNormal();
-    if (!normal.paused) {
-      normal.pause();
-      this._notifyNormal("pause");
+    if (!normal.paused) normal.pause();
+    if (this._activeMode === "normal") {
+      normal.src = "";
+      normal.load();
+      this._normalSrc  = null;
+      this._normalSong = null;
     }
 
+    this._activeMode = "live";
+
     const live = this._getLive();
-    const url  = `${AUDIOBASE}/${encodeURIComponent(song.file)}`;
+    const url  = buildAudioUrl(song.file);
+
+    console.log(`[LiveAudio] LIVE → "${song.name}" | url: ${url} | seek: ${seekTo.toFixed(1)}s`);
 
     this._liveSong   = song;
     this._liveActive = true;
 
-    // Clamp seekTo to the 3-min cap
-    const clampedSeek = Math.min(seekTo, SONG_CAP_SECONDS);
-
-    // Only change src if song is different
     if (this._liveSrc !== url) {
-      this._liveSrc  = url;
-      live.src       = url;
+      this._liveSrc = url;
+      live.src      = url;
       live.load();
     }
 
-    // Seek on metadata load
     await new Promise((resolve) => {
       if (live.readyState >= 1) {
-        if (clampedSeek > 0 && Math.abs(live.currentTime - clampedSeek) > 0.5) {
-          live.currentTime = clampedSeek;
+        if (seekTo > 0 && Math.abs(live.currentTime - seekTo) > 0.5) {
+          live.currentTime = seekTo;
         }
         resolve();
       } else {
         live.addEventListener("loadedmetadata", () => {
-          if (clampedSeek > 0 && Math.abs(live.currentTime - clampedSeek) > 0.5) {
-            live.currentTime = clampedSeek;
+          if (seekTo > 0 && Math.abs(live.currentTime - seekTo) > 0.5) {
+            live.currentTime = seekTo;
           }
           resolve();
         }, { once: true });
       }
     });
 
-    this._liveSongStartedAt = Date.now() - (clampedSeek * 1000);
-
     try {
       await live.play();
       this._notifyLive("play");
     } catch (err) {
-      console.warn("Live play blocked:", err.message);
+      console.warn("[LiveAudio] Live play blocked:", err.message);
       throw err;
     }
   }
 
-  /**
-   * Re-sync live position without reloading the file.
-   * Only corrects if drift > 1.5 seconds.
-   * Clamps to SONG_CAP_SECONDS.
-   */
   syncLivePosition(seekTo) {
-    const live   = this._getLive();
-    const clamped = Math.min(seekTo, SONG_CAP_SECONDS);
-    if (live.readyState >= 1 && Math.abs(live.currentTime - clamped) > 1.5) {
-      live.currentTime = clamped;
+    const live = this._getLive();
+    if (live.readyState >= 1 && Math.abs(live.currentTime - seekTo) > 1.5) {
+      live.currentTime = seekTo;
     }
   }
 
@@ -154,7 +162,7 @@ class LiveAudioManager {
       await this._getLive().play();
       this._notifyLive("play");
     } catch (err) {
-      console.warn("Resume live failed:", err.message);
+      console.warn("[LiveAudio] Resume live failed:", err.message);
       throw err;
     }
   }
@@ -165,10 +173,10 @@ class LiveAudioManager {
       this._live.src = "";
       this._live.load();
     }
-    this._liveSrc           = null;
-    this._liveSong          = null;
-    this._liveActive        = false;
-    this._liveSongStartedAt = null;
+    this._liveSrc    = null;
+    this._liveSong   = null;
+    this._liveActive = false;
+    if (this._activeMode === "live") this._activeMode = null;
     this._notifyLive("stopped");
   }
 
@@ -176,23 +184,8 @@ class LiveAudioManager {
     this._getLive().volume = Math.max(0, Math.min(1, v));
   }
 
-  /**
-   * liveCurrentTime — capped at SONG_CAP_SECONDS for the UI progress bar.
-   * The actual audio element may play beyond 3 min, but we don't show it.
-   */
-  get liveCurrentTime() {
-    const raw = this._live?.currentTime || 0;
-    return Math.min(raw, SONG_CAP_SECONDS);
-  }
-
-  /**
-   * liveDuration — always returns SONG_CAP_SECONDS (3 min) so the progress
-   * bar fills at exactly 3 minutes regardless of the actual audio length.
-   */
-  get liveDuration() {
-    return SONG_CAP_SECONDS;
-  }
-
+  get liveCurrentTime() { return this._live?.currentTime || 0; }
+  get liveDuration()    { return this._live?.duration    || 0; }
   get liveIsPlaying()   { return this._live ? !this._live.paused : false; }
   get liveSong()        { return this._liveSong; }
   get liveActive()      { return this._liveActive; }
@@ -203,14 +196,27 @@ class LiveAudioManager {
   async loadNormalAndPlay(song, seekTo = 0) {
     if (!song?.file) return;
 
-    // Pause live locally
-    this.pauseLive();
+    // Strictly stop live audio
+    const live = this._getLive();
+    if (!live.paused) live.pause();
+    if (this._activeMode === "live") {
+      live.src = "";
+      live.load();
+      this._liveSrc    = null;
+      this._liveSong   = null;
+      this._liveActive = false;
+    }
+
+    this._activeMode = "normal";
 
     const normal = this._getNormal();
-    const url    = `${AUDIOBASE}/${encodeURIComponent(song.file)}`;
+    const url    = buildAudioUrl(song.file);
 
-    if (this._normalSong?._id !== song._id) {
+    console.log(`[LiveAudio] NORMAL → "${song.name}" | url: ${url}`);
+
+    if (this._normalSrc !== url) {
       this._normalSong = song;
+      this._normalSrc  = url;
       normal.src       = url;
       normal.load();
     }
@@ -220,6 +226,7 @@ class LiveAudioManager {
         normal.currentTime = seekTo;
       }
       await normal.play();
+      this._notifyNormal("play");
     };
 
     if (normal.readyState >= 1) {
@@ -243,10 +250,16 @@ class LiveAudioManager {
   }
 
   async resumeNormal() {
+    if (this._activeMode === "live" && this._liveActive) {
+      console.warn("[LiveAudio] resumeNormal blocked: live mode is active");
+      return;
+    }
+    this._activeMode = "normal";
     try {
       await this._getNormal().play();
+      this._notifyNormal("play");
     } catch (err) {
-      console.warn("Resume normal failed:", err.message);
+      console.warn("[LiveAudio] Resume normal failed:", err.message);
       throw err;
     }
   }
@@ -263,6 +276,8 @@ class LiveAudioManager {
       this._normal.load();
     }
     this._normalSong = null;
+    this._normalSrc  = null;
+    if (this._activeMode === "normal") this._activeMode = null;
     this._notifyNormal("stopped");
   }
 
@@ -275,6 +290,8 @@ class LiveAudioManager {
   get normalIsPlaying()   { return this._normal ? !this._normal.paused : false; }
   get normalSong()        { return this._normalSong; }
   get normalPaused()      { return this._normal ? this._normal.paused : true; }
+
+  get activeMode() { return this._activeMode; }
 }
 
 export const liveAudio = new LiveAudioManager();

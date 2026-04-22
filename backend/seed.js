@@ -3,7 +3,6 @@ const mongoose  = require("mongoose");
 const bcrypt    = require("bcryptjs");
 const connectDB = require("./config/db");
 const User      = require("./models/User");
-
 const seeds = [
   { name: "Admin User", email: "admin@sunasathi.com", password: "admin123", role: "admin" },
   { name: "Test User",  email: "user@sunasathi.com",  password: "user123",  role: "user"  },
@@ -18,7 +17,7 @@ const seed = async () => {
       const exists = await User.findOne({ email: s.email });
 
       if (exists) {
-        // Fix existing seed users — ensure isVerified is true
+    
         if (!exists.isVerified) {
           exists.isVerified = true;
           await exists.save();
@@ -40,7 +39,7 @@ const seed = async () => {
         likedSongs: [],
       });
 
-      console.log(`✅ Created → ${s.email} | role: ${s.role} | password: ${s.password}`);
+      console.log(`Created → ${s.email} | role: ${s.role} | password: ${s.password}`);
     }
 
     console.log("\nSeeding complete.");
@@ -51,5 +50,4 @@ const seed = async () => {
     process.exit(0);
   }
 };
-
 seed();

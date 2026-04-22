@@ -25,7 +25,7 @@ module.exports = (httpServer) => {
     io.to("live_room").emit("listener_count", listenerCount);
   };
 
-  // Auth middleware
+  // ── Auth middleware ────────────────────────────────────
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error("No token"));
@@ -39,6 +39,8 @@ module.exports = (httpServer) => {
   });
 
   // ── Radio clock — checks every second ─────────────────
+  // When song index changes, broadcasts song_changed with
+  // the real positionInSong (no 3-minute cap).
   let lastSongIndex = -1;
 
   const startRadioClock = async () => {
@@ -57,12 +59,14 @@ module.exports = (httpServer) => {
         const state = radioScheduler.getCurrentState();
         if (!state) return;
 
+        // When the song changes, broadcast the new song to all listeners
         if (state.songIndex !== lastSongIndex) {
           lastSongIndex = state.songIndex;
 
           const song = await Song.findById(state.song._id).lean();
           if (!song) return;
 
+          // positionInSong is the real position — no cap applied
           io.to("live_room").emit("song_changed", {
             song,
             currentSongIndex: state.songIndex,
@@ -71,9 +75,9 @@ module.exports = (httpServer) => {
           });
 
           console.log(
-            `📻 Now playing: "${song.name}" — ` +
+            `Now playing: "${song.name}" — ` +
             `index ${state.songIndex}, ` +
-            `pos ${state.positionInSong.toFixed(1)}s, ` +
+            `position ${state.positionInSong.toFixed(1)}s, ` +
             `full duration ${(radioScheduler.durations[state.songIndex] || 0).toFixed(1)}s`
           );
         }
@@ -86,6 +90,8 @@ module.exports = (httpServer) => {
   startRadioClock();
 
   // ── Position sync every 10s ────────────────────────────
+  // Sends real positionInSong so clients can correct drift.
+  // No cap — full song position sent.
   setInterval(async () => {
     try {
       const session = await LiveSession.findOne({ isActive: true }).lean();
@@ -94,6 +100,7 @@ module.exports = (httpServer) => {
       const state = radioScheduler.getCurrentState();
       if (!state) return;
 
+      // positionInSong is the real position in the song (no cap)
       io.to("live_room").emit("time_sync", {
         currentTime: state.positionInSong,
         songIndex:   state.songIndex,
@@ -101,9 +108,11 @@ module.exports = (httpServer) => {
     } catch { /* silent */ }
   }, 10000);
 
+  // ── Socket connection handler ──────────────────────────
   io.on("connection", (socket) => {
-    console.log(`🔌 Socket connected: ${socket.user?.id}`);
+    console.log(`Socket connected: ${socket.user?.id}`);
 
+    // ── Join live room ─────────────────────────────────
     socket.on("join_live", async () => {
       try {
         socket.join("live_room");
@@ -113,12 +122,13 @@ module.exports = (httpServer) => {
 
         listenerCount++;
         broadcastListenerCount();
-        console.log(`👥 Listener joined — total: ${listenerCount}`);
+        console.log(`Listener joined — total: ${listenerCount}`);
 
         const state = radioScheduler.getCurrentState();
         if (state) {
           const song = await Song.findById(state.song._id).lean();
           if (song) {
+            // Send real position — no cap — so client seeks to correct spot
             socket.emit("sync_on_join", {
               isPlaying:   true,
               currentTime: state.positionInSong,
@@ -132,13 +142,15 @@ module.exports = (httpServer) => {
       }
     });
 
+    // ── Leave live room ────────────────────────────────
     socket.on("leave_live", () => {
       socket.leave("live_room");
       listenerCount = Math.max(0, listenerCount - 1);
       broadcastListenerCount();
-      console.log(`👥 Listener left — total: ${listenerCount}`);
+      console.log(`Listener left — total: ${listenerCount}`);
     });
 
+    // ── Admin end session ──────────────────────────────
     socket.on("admin_end_session", async () => {
       if (socket.user?.role !== "admin") return;
       try {
@@ -147,12 +159,13 @@ module.exports = (httpServer) => {
         io.to("live_room").emit("session_ended");
         listenerCount = 0;
         lastSongIndex = -1;
-        console.log("📻 Live session ended by admin");
+        console.log("Live session ended by admin");
       } catch (err) {
         console.error("admin_end_session error:", err.message);
       }
     });
 
+    // ── Chat message ───────────────────────────────────
     socket.on("send_message", async ({ message }) => {
       if (!message?.trim()) return;
       try {
@@ -181,6 +194,7 @@ module.exports = (httpServer) => {
       }
     });
 
+    // ── Emoji reaction ─────────────────────────────────
     socket.on("send_reaction", async ({ reaction }) => {
       const allowed = ["❤️", "🔥", "🎵", "👏", "😍"];
       if (!allowed.includes(reaction)) return;
@@ -195,14 +209,15 @@ module.exports = (httpServer) => {
       } catch { /* silent */ }
     });
 
+    // ── Disconnect ─────────────────────────────────────
     socket.on("disconnect", () => {
       const rooms = Array.from(socket.rooms);
       if (rooms.includes("live_room")) {
         listenerCount = Math.max(0, listenerCount - 1);
         broadcastListenerCount();
-        console.log(`👥 Listener disconnected — total: ${listenerCount}`);
+        console.log(`Listener disconnected — total: ${listenerCount}`);
       }
-      console.log(`🔌 Socket disconnected: ${socket.user?.id}`);
+      console.log(`Socket disconnected: ${socket.user?.id}`);
     });
   });
 

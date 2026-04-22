@@ -18,7 +18,10 @@ class RadioScheduler {
 
   async _doLoad() {
     try {
-      const songs = await Song.find({ isLiveOnly: { $ne: true } })
+      // ✅ FIXED: Load ALL songs for the live radio (both regular AND live-only)
+      // Live-only songs are EXCLUSIVE to the live stream — they won't appear in dashboard
+      // Regular songs appear in dashboard AND in the live stream
+      const songs = await Song.find({})
         .sort({ createdAt: 1 })
         .lean();
 
@@ -27,7 +30,7 @@ class RadioScheduler {
         this._durations     = [];
         this._totalDuration = 0;
         this._loaded        = true;
-        console.warn("⚠️  RadioScheduler: no songs found");
+        console.warn("RadioScheduler: no songs found");
         return;
       }
 
@@ -35,17 +38,31 @@ class RadioScheduler {
       this._durations = songs.map((s) => {
         const d = Number(s.duration);
         if (!d || d <= 0) {
-          console.warn(`⚠️  "${s.name}" has no duration — using 600s fallback`);
-          return 600;
+          console.warn(`"${s.name}" has no duration — using 240s fallback`);
+          return 240;
         }
         return d;
       });
+
       this._totalDuration = this._durations.reduce((a, b) => a + b, 0);
       this._loaded        = true;
 
-      console.log(`✅ RadioScheduler loaded: ${songs.length} songs, total ${(this._totalDuration / 60).toFixed(1)} min`);
+      const liveOnlyCount = songs.filter(s => s.isLiveOnly).length;
+      const regularCount  = songs.filter(s => !s.isLiveOnly).length;
+
+      console.log(
+        `RadioScheduler loaded: ${songs.length} songs total ` +
+        `(${regularCount} regular + ${liveOnlyCount} live-only), ` +
+        `total ${(this._totalDuration / 60).toFixed(1)} min`
+      );
+
       songs.forEach((s, i) => {
-        console.log(`   [${i}] "${s.name}" — ${this._durations[i].toFixed(1)}s (${(this._durations[i]/60).toFixed(2)} min)`);
+        const tag = s.isLiveOnly ? "[LIVE-ONLY]" : "[regular]";
+        console.log(
+          `  [${i}] ${tag} "${s.name}" — ` +
+          `${this._durations[i].toFixed(1)}s ` +
+          `(${(this._durations[i] / 60).toFixed(2)} min)`
+        );
       });
     } catch (err) {
       console.error("RadioScheduler load error:", err);
@@ -62,13 +79,17 @@ class RadioScheduler {
 
   startStream() {
     this._streamStart = new Date();
-    console.log(`📻 Stream clock started at ${this._streamStart.toISOString()}`);
-    console.log(`📻 Songs will play: ${this._songs.map((s,i) => `"${s.name}" (${this._durations[i].toFixed(0)}s)`).join(" → ")}`);
+    console.log(`Stream clock started at ${this._streamStart.toISOString()}`);
+    console.log(
+      `Play order: ${this._songs
+        .map((s, i) => `"${s.name}"${s.isLiveOnly ? "🔴" : ""} (${this._durations[i].toFixed(0)}s)`)
+        .join(" → ")}`
+    );
   }
 
   stopStream() {
     this._streamStart = null;
-    console.log("📻 Stream clock stopped");
+    console.log("Stream clock stopped");
   }
 
   getCurrentState() {
@@ -85,9 +106,10 @@ class RadioScheduler {
       };
     }
 
-    const nowMs        = Date.now();
-    const startMs      = this._streamStart.getTime();
-    const elapsedSec   = Math.max(0, (nowMs - startMs) / 1000);
+    const nowMs      = Date.now();
+    const startMs    = this._streamStart.getTime();
+    const elapsedSec = Math.max(0, (nowMs - startMs) / 1000);
+
     const loopPosition = elapsedSec % this._totalDuration;
 
     let accumulated = 0;

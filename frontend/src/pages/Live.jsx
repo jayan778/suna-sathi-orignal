@@ -18,6 +18,7 @@ export default function Live() {
   const { user }   = useAuth();
   const socketRef  = useRef(null);
   const chatEndRef = useRef(null);
+  const hasJoinedRef = useRef(false);
 
   const [session,           setSession]           = useState(null);
   const [loading,           setLoading]           = useState(true);
@@ -35,7 +36,21 @@ export default function Live() {
   const [needsInteraction,  setNeedsInteraction]  = useState(false);
   const [loadError,         setLoadError]         = useState("");
 
-  // ── Sync liveAudio state → React ──────────────────────
+  // Ref to current song so socket handlers can access latest value
+  const currentSongRef = useRef(null);
+  useEffect(() => { currentSongRef.current = currentSong; }, [currentSong]);
+
+  // ── Stop normal audio the moment Live mounts ───────────
+  useEffect(() => {
+    liveAudio.pauseNormal();
+
+    // On unmount: stop live audio, leave it clean for dashboard
+    return () => {
+      liveAudio.stopLive();
+    };
+  }, []);
+
+  // ── Sync liveAudio LIVE state → React ─────────────────
   useEffect(() => {
     const unsub = liveAudio.subscribeLive(() => {
       setIsPlaying(liveAudio.liveIsPlaying);
@@ -50,7 +65,21 @@ export default function Live() {
 
   useEffect(() => { liveAudio.setLiveVolume(volume); }, [volume]);
 
-  // ── Load session ───────────────────────────────────────
+  // ── Helper: load and play with autoplay fallback ───────
+  const tryLoadAndPlay = useCallback(async (song, seekTo = 0) => {
+    if (!song) return;
+    // Always kill normal audio before starting live
+    liveAudio.pauseNormal();
+    try {
+      await liveAudio.loadLiveAndPlay(song, seekTo);
+      setNeedsInteraction(false);
+    } catch (err) {
+      console.warn("Autoplay blocked:", err.message);
+      setNeedsInteraction(true);
+    }
+  }, []);
+
+  // ── Load initial session ───────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
@@ -63,20 +92,20 @@ export default function Live() {
 
         setSession(res.data);
         setCurrentSong(res.data.currentSong);
-        // safely parse listener count as plain number
         setListenerCount(Number(res.data.listeners) || 0);
 
-        const seekTo = res.data.positionInSong || 0;
-
+        // Load chat history
         try {
-          await liveAudio.loadLiveAndPlay(res.data.currentSong, seekTo);
-          setNeedsInteraction(false);
-        } catch {
-          setNeedsInteraction(true);
+          const chatRes = await api.get("/api/live/chat");
+          setMessages(chatRes.data || []);
+        } catch { /* ignore */ }
+
+        // Start playing from the correct position reported by server
+        const seekTo = res.data.positionInSong || 0;
+        if (res.data.currentSong) {
+          await tryLoadAndPlay(res.data.currentSong, seekTo);
         }
 
-        const chatRes = await api.get("/api/live/chat");
-        setMessages(chatRes.data || []);
       } catch (err) {
         console.error("Failed to load session:", err);
         setLoadError("Failed to connect to the live stream.");
@@ -85,8 +114,12 @@ export default function Live() {
       }
     };
     load();
-    return () => {};
-  }, []);
+
+    // Cleanup: stop live audio when leaving the page
+    return () => {
+      liveAudio.stopLive();
+    };
+  }, [tryLoadAndPlay]);
 
   // ── Socket events ──────────────────────────────────────
   useEffect(() => {
@@ -96,37 +129,33 @@ export default function Live() {
     const socket = connectSocket(token);
     socketRef.current = socket;
 
-    socket.emit("join_live");
+    if (!hasJoinedRef.current) {
+      socket.emit("join_live");
+      hasJoinedRef.current = true;
+    }
 
-    // Always cast to Number to avoid Mongoose emitter bleed-through
     socket.on("listener_count", (count) => {
       setListenerCount(Number(count) || 0);
     });
 
+    // Server sends this when we first join with current song + position
     socket.on("sync_on_join", async ({ currentTime: ct, song }) => {
-      if (song) setCurrentSong(song);
-      try {
-        await liveAudio.loadLiveAndPlay(song || currentSong, ct);
-        setNeedsInteraction(false);
-      } catch {
-        setNeedsInteraction(true);
-      }
+      if (!song) return;
+      setCurrentSong(song);
+      await tryLoadAndPlay(song, ct || 0);
     });
 
+    // Server sends this when the radio scheduler advances to next song
     socket.on("song_changed", async ({ song, currentTime: ct }) => {
       if (!song) return;
       setCurrentSong(song);
       setProgress(0);
       setCurrentTime(0);
-      try {
-        await liveAudio.loadLiveAndPlay(song, ct || 0);
-        setNeedsInteraction(false);
-      } catch {
-        setNeedsInteraction(true);
-      }
+      await tryLoadAndPlay(song, ct || 0);
     });
 
-    socket.on("time_sync", ({ currentTime: ct, songIndex }) => {
+    // Periodic drift correction from server
+    socket.on("time_sync", ({ currentTime: ct }) => {
       if (Math.abs(liveAudio.liveCurrentTime - ct) > 3) {
         liveAudio.syncLivePosition(ct);
       }
@@ -158,8 +187,9 @@ export default function Live() {
       socket.off("new_message");
       socket.off("new_reaction");
       socket.off("session_ended");
+      hasJoinedRef.current = false;
     };
-  }, [session?.isActive]);
+  }, [session?.isActive, tryLoadAndPlay]);
 
   // ── Media Session API ──────────────────────────────────
   useEffect(() => {
@@ -169,10 +199,6 @@ export default function Live() {
       artist: currentSong.artist || "SunaSathi Radio",
       album:  session?.playlistName || "Live Session",
     });
-    navigator.mediaSession.setActionHandler("play",          null);
-    navigator.mediaSession.setActionHandler("pause",         null);
-    navigator.mediaSession.setActionHandler("nexttrack",     null);
-    navigator.mediaSession.setActionHandler("previoustrack", null);
   }, [currentSong, session]);
 
   // ── Chat auto-scroll ───────────────────────────────────
@@ -180,12 +206,18 @@ export default function Live() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ── Tap to start ───────────────────────────────────────
+  // ── Tap to start (autoplay blocked) ───────────────────
   const handleUserPlay = async () => {
+    liveAudio.pauseNormal();
     try {
+      // Re-fetch current position from server to ensure accuracy
       const res    = await api.get("/api/live/session");
+      const song   = res.data.currentSong || currentSongRef.current;
       const seekTo = res.data.positionInSong || liveAudio.liveCurrentTime;
-      await liveAudio.loadLiveAndPlay(currentSong, seekTo);
+
+      if (!song) return;
+      setCurrentSong(song);
+      await liveAudio.loadLiveAndPlay(song, seekTo);
       setNeedsInteraction(false);
     } catch (err) {
       console.error("User play failed:", err);
@@ -233,7 +265,7 @@ export default function Live() {
               ? "The admin has ended the live stream. Thanks for listening!"
               : loadError
               ? loadError
-              : "There's no active live stream right now. Check back later."}
+              : "There's no active live stream right now. Check back later or enjoy music from your dashboard."}
           </p>
           <button
             onClick={() => navigate("/dashboard")}
@@ -282,7 +314,7 @@ export default function Live() {
           onClick={handleUserPlay}
         >
           <p className="text-sm text-indigo-300">
-            👆 Tap here to start the live stream
+            👆 Tap here to start listening to the live stream
           </p>
           <div className="px-4 py-1.5 rounded-lg bg-indigo-500 text-white text-sm font-semibold flex-shrink-0">
             Start
@@ -334,9 +366,9 @@ export default function Live() {
           {/* Song info */}
           <div className="text-center mb-5 mt-6">
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-2">
-              {currentSong?.name || "Loading..."}
+              {currentSong?.name || "Connecting..."}
             </h2>
-            <p className="text-gray-400 text-lg">{currentSong?.artist}</p>
+            <p className="text-gray-400 text-lg">{currentSong?.artist || ""}</p>
             <div className="flex items-center justify-center gap-2 mt-3">
               {currentSong?.genre && (
                 <span className="px-3 py-1 bg-white/5 rounded-full text-xs text-gray-400 border border-white/10">
@@ -351,7 +383,7 @@ export default function Live() {
             </div>
           </div>
 
-          {/* Progress bar — read-only */}
+          {/* Progress bar — read-only for users */}
           <div className="w-full max-w-md mb-1">
             <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
               <div
@@ -384,22 +416,23 @@ export default function Live() {
 
           {/* Status */}
           <div className="mb-8">
-            {isPlaying ? (
+            {needsInteraction ? (
+              <button
+                onClick={handleUserPlay}
+                className="flex items-center gap-2 px-6 py-3 bg-indigo-500 hover:bg-indigo-400 rounded-full text-white font-semibold transition-all shadow-lg shadow-indigo-500/40"
+              >
+                <Radio className="w-5 h-5" />
+                Tap to Listen
+              </button>
+            ) : isPlaying ? (
               <div className="flex items-center gap-2 px-5 py-3 bg-red-500/10 border border-red-500/20 rounded-full">
                 <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
                 <span className="text-sm font-medium text-red-400">Broadcasting Live</span>
               </div>
-            ) : needsInteraction ? (
-              <button
-                onClick={handleUserPlay}
-                className="flex items-center gap-2 px-5 py-3 bg-indigo-500 hover:bg-indigo-400 rounded-full text-white font-semibold transition-all"
-              >
-                Tap to Listen
-              </button>
             ) : (
               <div className="flex items-center gap-2 px-5 py-3 bg-white/5 border border-white/10 rounded-full">
-                <div className="w-2 h-2 rounded-full bg-gray-500" />
-                <span className="text-sm text-gray-400">Connecting...</span>
+                <div className="w-2 h-2 rounded-full bg-gray-500 animate-pulse" />
+                <span className="text-sm text-gray-400">Buffering...</span>
               </div>
             )}
           </div>
@@ -432,7 +465,7 @@ export default function Live() {
               </p>
             ) : (
               messages.map((msg) => (
-                <div key={msg._id} className="flex gap-2">
+                <div key={msg._id || Math.random()} className="flex gap-2">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-500/20 to-pink-500/20 border border-red-500/20 flex items-center justify-center flex-shrink-0 text-xs font-bold text-red-300">
                     {msg.userName?.[0]?.toUpperCase()}
                   </div>

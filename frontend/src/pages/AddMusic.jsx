@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import api from "../services/api";
 import {
-  Upload, Music2, Trash2, Plus, Search, Filter,
+  Upload, Music2, Trash2, Plus, Search,
   AlertTriangle, Info, Radio, User, X, Check,
-  ChevronDown, Camera,
+  ChevronDown, Camera, LayoutList,
 } from "lucide-react";
 
 const AUDIOBASE = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/uploads`;
@@ -167,6 +167,8 @@ export default function AddMusic() {
   };
 
   const genres = ["all", ...new Set(songs.map((s) => s.genre).filter(Boolean))];
+  const regularCount  = songs.filter(s => !s.isLiveOnly).length;
+  const liveOnlyCount = songs.filter(s =>  s.isLiveOnly).length;
 
   return (
     <main className="min-h-screen bg-[#0B0F1A] text-white px-4 sm:px-6 md:px-8 py-8 space-y-8">
@@ -179,6 +181,32 @@ export default function AddMusic() {
         <div>
           <h1 className="text-3xl sm:text-4xl font-bold">Add Music</h1>
           <p className="text-gray-400 mt-1">Upload and manage your music library</p>
+        </div>
+      </div>
+
+      {/* Song type explanation banner */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="flex items-start gap-4 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl">
+          <div className="w-10 h-10 rounded-xl bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+            <Music2 className="w-5 h-5 text-indigo-400" />
+          </div>
+          <div>
+            <p className="font-semibold text-white text-sm">Regular Songs</p>
+            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Appear in the Dashboard for users to browse and play freely. Also included in the live radio stream.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-start gap-4 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl">
+          <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center flex-shrink-0">
+            <Radio className="w-5 h-5 text-red-400" />
+          </div>
+          <div>
+            <p className="font-semibold text-white text-sm">Live-Only Songs</p>
+            <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+              Hidden from the Dashboard — exclusive to the live radio stream. Perfect for premieres, exclusives, or special content.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -249,30 +277,80 @@ export default function AddMusic() {
               </div>
             </div>
 
-            {/* Live Only toggle */}
-            <div
-              onClick={() => setForm((p) => ({ ...p, isLiveOnly: !p.isLiveOnly }))}
-              className={`flex items-center justify-between p-4 rounded-xl border cursor-pointer transition-all ${
-                form.isLiveOnly
-                  ? "bg-red-500/10 border-red-500/30"
-                  : "bg-white/5 border-white/10 hover:bg-white/10"
-              }`}>
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${form.isLiveOnly ? "bg-red-500/20" : "bg-white/5"}`}>
-                  <Radio className={`w-5 h-5 ${form.isLiveOnly ? "text-red-400" : "text-gray-500"}`} />
-                </div>
-                <div>
-                  <p className={`font-medium text-sm ${form.isLiveOnly ? "text-red-300" : "text-white"}`}>
-                    Live Only
+            {/* Live Only toggle — redesigned with clear consequence text */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Song Visibility</label>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Regular option */}
+                <button
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, isLiveOnly: false }))}
+                  className={`flex flex-col items-start gap-2 p-4 rounded-xl border-2 transition-all text-left ${
+                    !form.isLiveOnly
+                      ? "bg-indigo-500/10 border-indigo-500/50"
+                      : "bg-white/5 border-white/10 hover:bg-white/10"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                      !form.isLiveOnly ? "border-indigo-400 bg-indigo-500" : "border-gray-500"
+                    }`}>
+                      {!form.isLiveOnly && <div className="w-2 h-2 rounded-full bg-white" />}
+                    </div>
+                    <Music2 className={`w-4 h-4 ${!form.isLiveOnly ? "text-indigo-400" : "text-gray-500"}`} />
+                    <span className={`text-sm font-semibold ${!form.isLiveOnly ? "text-white" : "text-gray-400"}`}>
+                      Regular
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed pl-6">
+                    Dashboard + Live stream
                   </p>
-                  <p className="text-xs text-gray-500">
-                    {form.isLiveOnly ? "Hidden from normal library" : "Available in normal library"}
+                </button>
+
+                {/* Live-only option */}
+                <button
+                  type="button"
+                  onClick={() => setForm((p) => ({ ...p, isLiveOnly: true }))}
+                  className={`flex flex-col items-start gap-2 p-4 rounded-xl border-2 transition-all text-left ${
+                    form.isLiveOnly
+                      ? "bg-red-500/10 border-red-500/50"
+                      : "bg-white/5 border-white/10 hover:bg-white/10"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                      form.isLiveOnly ? "border-red-400 bg-red-500" : "border-gray-500"
+                    }`}>
+                      {form.isLiveOnly && <div className="w-2 h-2 rounded-full bg-white" />}
+                    </div>
+                    <Radio className={`w-4 h-4 ${form.isLiveOnly ? "text-red-400" : "text-gray-500"}`} />
+                    <span className={`text-sm font-semibold ${form.isLiveOnly ? "text-red-300" : "text-gray-400"}`}>
+                      Live Only
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed pl-6">
+                    Live stream only — hidden from dashboard
+                  </p>
+                </button>
+              </div>
+
+              {/* Consequence callout */}
+              {form.isLiveOnly ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <Radio className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                  <p className="text-xs text-red-300">
+                    This song will <strong>not appear</strong> in the user dashboard. It will only play during a live stream session.
                   </p>
                 </div>
-              </div>
-              <div className={`w-11 h-6 rounded-full transition-all relative ${form.isLiveOnly ? "bg-red-500" : "bg-white/10"}`}>
-                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${form.isLiveOnly ? "left-6" : "left-1"}`} />
-              </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
+                  <Music2 className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
+                  <p className="text-xs text-indigo-300">
+                    This song will appear in the user dashboard and also play during live streams.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Audio file */}
@@ -315,7 +393,7 @@ export default function AddMusic() {
         {/* Songs List */}
         <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8">
           <div className="flex items-center gap-3 mb-6">
-            <Music2 className="w-5 h-5 text-purple-400" />
+            <LayoutList className="w-5 h-5 text-purple-400" />
             <h2 className="text-xl font-bold">All Songs ({songs.length})</h2>
           </div>
 
@@ -342,22 +420,30 @@ export default function AddMusic() {
                   className="w-full appearance-none bg-[#0B0F1A] border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500/50 cursor-pointer">
                   <option value="all">All Songs</option>
                   <option value="regular">Regular Only</option>
-                  <option value="live">Live Only</option>
+                  <option value="live">Live-Only</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
               </div>
             </div>
           </div>
 
-          {/* Stats */}
+          {/* Stats — clearer labels */}
           <div className="grid grid-cols-2 gap-3 mb-5">
-            <div className="px-4 py-3 bg-white/5 rounded-xl border border-white/10 text-center">
-              <p className="text-xl font-bold text-white">{songs.filter((s) => !s.isLiveOnly).length}</p>
+            <div className="px-4 py-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20 text-center">
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <Music2 className="w-3.5 h-3.5 text-indigo-400" />
+                <p className="text-xl font-bold text-white">{regularCount}</p>
+              </div>
               <p className="text-xs text-gray-400">Regular</p>
+              <p className="text-xs text-gray-600">Dashboard + Live</p>
             </div>
             <div className="px-4 py-3 bg-red-500/10 rounded-xl border border-red-500/20 text-center">
-              <p className="text-xl font-bold text-red-400">{songs.filter((s) => s.isLiveOnly).length}</p>
-              <p className="text-xs text-gray-400">Live Only</p>
+              <div className="flex items-center justify-center gap-1.5 mb-1">
+                <Radio className="w-3.5 h-3.5 text-red-400" />
+                <p className="text-xl font-bold text-red-400">{liveOnlyCount}</p>
+              </div>
+              <p className="text-xs text-gray-400">Live-Only</p>
+              <p className="text-xs text-gray-600">Live Stream Only</p>
             </div>
           </div>
 
@@ -375,7 +461,11 @@ export default function AddMusic() {
               return (
                 <div key={id}
                   className="flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-all group">
-                  <div className={`w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 ${song.isLiveOnly ? "bg-red-500/20" : "bg-gradient-to-br from-indigo-500/20 to-purple-500/20"}`}>
+                  <div className={`w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    song.isLiveOnly
+                      ? "bg-red-500/20 border border-red-500/20"
+                      : "bg-gradient-to-br from-indigo-500/20 to-purple-500/20"
+                  }`}>
                     {song.isLiveOnly
                       ? <Radio className="w-5 h-5 text-red-400" />
                       : <Music2 className="w-5 h-5 text-indigo-400" />}
@@ -384,11 +474,19 @@ export default function AddMusic() {
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-white truncate text-sm">{song.name}</p>
                       {song.isLiveOnly && (
-                        <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-xs rounded-full border border-red-500/30 flex-shrink-0">LIVE</span>
+                        <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-xs rounded-full border border-red-500/30 flex-shrink-0 whitespace-nowrap">
+                          LIVE ONLY
+                        </span>
                       )}
                     </div>
                     <p className="text-xs text-gray-400 truncate">
                       {song.artist} · {song.genre} · {song.year}
+                    </p>
+                    <p className="text-xs mt-0.5">
+                      {song.isLiveOnly
+                        ? <span className="text-red-400/70">Live stream only · hidden from dashboard</span>
+                        : <span className="text-indigo-400/70">Dashboard + Live stream</span>
+                      }
                     </p>
                   </div>
                   <button onClick={() => deleteSong(id)}

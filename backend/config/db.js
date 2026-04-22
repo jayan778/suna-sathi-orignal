@@ -12,8 +12,6 @@ const connectDB = async () => {
     process.exit(1);
   }
 };
-
-// Handle connection events
 mongoose.connection.on("disconnected", () => {
   console.warn("MongoDB disconnected");
 });

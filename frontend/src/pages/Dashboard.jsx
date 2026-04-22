@@ -43,6 +43,7 @@ export default function Dashboard() {
   const [songDurations,    setSongDurations]    = useState({});
   const [loadingDurations, setLoadingDurations] = useState(false);
   const [availableGenres,  setAvailableGenres]  = useState(["All Tracks"]);
+  const [artistsData,      setArtistsData]      = useState([]); // artist objects with photos
 
   // ── View state ─────────────────────────────────────────
   const [mode,             setMode]             = useState("all");
@@ -168,14 +169,16 @@ export default function Dashboard() {
   }, []);
 
   const loadSongs = useCallback(async () => {
-    const [songsRes, genresRes] = await Promise.all([
+    const [songsRes, genresRes, artistsRes] = await Promise.all([
       api.get("/api/songs"),
       api.get("/api/songs/genres"),
+      api.get("/api/songs/artists"),
     ]);
     const list = songsRes.data || [];
     setSongs(list);
     loadDurations(list);
     setAvailableGenres(["All Tracks", ...(genresRes.data || [])]);
+    setArtistsData(artistsRes.data || []);
   }, [loadDurations]);
 
   const refreshPlaylists = useCallback(async () => {
@@ -216,7 +219,6 @@ export default function Dashboard() {
     return songs;
   }, [mode, selectedPlaylist, songs, likedSongIds]);
 
-  // Only playable (non live-only) songs in queue
   const playableQueue = useMemo(
     () => queue.filter((s) => !s.isLiveOnly),
     [queue]
@@ -230,7 +232,7 @@ export default function Dashboard() {
   const filteredSongs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return queue.filter((song) => {
-      if (song.isLiveOnly) return false; // never show live-only in user library
+      if (song.isLiveOnly) return false;
       const matchesSearch =
         !q ||
         song.name?.toLowerCase().includes(q) ||
@@ -250,16 +252,30 @@ export default function Dashboard() {
       .filter((s) => !s.isLiveOnly && s._id !== currentSong?._id);
   }, [songs, recentSongIds, currentSong?._id]);
 
+  // ── Artists — merged with photo data from API ──────────
   const artists = useMemo(() => {
+    // Build a map of artist name → photo from the artists API response
+    const photoMap = {};
+    artistsData.forEach((a) => {
+      photoMap[a.name] = a.photo || "";
+    });
+
     const map = {};
     songs.forEach((s) => {
       if (!s.artist || s.isLiveOnly) return;
-      if (!map[s.artist]) map[s.artist] = { name: s.artist, songs: [], genres: new Set() };
+      if (!map[s.artist]) {
+        map[s.artist] = {
+          name:   s.artist,
+          songs:  [],
+          genres: new Set(),
+          photo:  photoMap[s.artist] || "", // attach photo from API
+        };
+      }
       map[s.artist].songs.push(s);
       if (s.genre) map[s.artist].genres.add(s.genre);
     });
     return Object.values(map).sort((a, b) => b.songs.length - a.songs.length);
-  }, [songs]);
+  }, [songs, artistsData]);
 
   const totalQueueDuration = useMemo(
     () => filteredSongs.reduce((sum, s) => sum + (songDurations[s._id] || 0), 0),
@@ -269,7 +285,7 @@ export default function Dashboard() {
   // ── Playback controls ──────────────────────────────────
   const playSong = useCallback(async (song) => {
     if (!song?._id || !song.file) return;
-    if (song.isLiveOnly) return; // guard: never play live-only in normal player
+    if (song.isLiveOnly) return;
 
     setCurrentSong(song);
     setProgress(0);
@@ -378,6 +394,12 @@ export default function Dashboard() {
     ];
     return colors[(name.charCodeAt(0) || 0) % colors.length];
   };
+
+  // ── Artist photo helper ────────────────────────────────
+  const getArtistPhoto = useCallback((artistName) => {
+    const found = artists.find((a) => a.name === artistName);
+    return found?.photo || "";
+  }, [artists]);
 
   const showMiniPlayer = !!currentSong && view !== "player";
 
@@ -517,7 +539,7 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                {/* Genre pills — dynamic from API */}
+                {/* Genre pills */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
                   {availableGenres.map((g) => (
                     <button
@@ -597,7 +619,22 @@ export default function Dashboard() {
                                 <p className="text-xs text-gray-500 truncate">{song.year}</p>
                               </div>
                             </div>
-                            <div className="col-span-3 flex items-center">
+                            <div className="col-span-3 flex items-center gap-2">
+                              {/* Artist photo thumbnail in table */}
+                              {(() => {
+                                const photo = getArtistPhoto(song.artist);
+                                return photo ? (
+                                  <img
+                                    src={`${AUDIOBASE}/${photo}`}
+                                    alt={song.artist}
+                                    className="w-6 h-6 rounded-full object-cover flex-shrink-0"
+                                  />
+                                ) : (
+                                  <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0 text-xs font-bold text-gray-400">
+                                    {song.artist?.[0]?.toUpperCase()}
+                                  </div>
+                                );
+                              })()}
                               <span className="text-gray-300 truncate text-sm">{song.artist}</span>
                             </div>
                             <div className="col-span-2 flex items-center">
@@ -681,7 +718,20 @@ export default function Dashboard() {
                             <p className={`font-medium text-sm truncate ${active ? "text-indigo-300" : "text-white"}`}>
                               {song.name}
                             </p>
-                            <p className="text-xs text-gray-400 truncate">{song.artist}</p>
+                            <div className="flex items-center gap-1.5">
+                              {/* Artist photo in grid card */}
+                              {(() => {
+                                const photo = getArtistPhoto(song.artist);
+                                return photo ? (
+                                  <img
+                                    src={`${AUDIOBASE}/${photo}`}
+                                    alt={song.artist}
+                                    className="w-4 h-4 rounded-full object-cover flex-shrink-0"
+                                  />
+                                ) : null;
+                              })()}
+                              <p className="text-xs text-gray-400 truncate">{song.artist}</p>
+                            </div>
                             <div className="flex items-center justify-between mt-1">
                               <span className="text-xs text-gray-500 px-1.5 py-0.5 bg-white/5 rounded border border-white/10">
                                 {song.genre}
@@ -749,9 +799,18 @@ export default function Dashboard() {
                           onClick={() => { setSearchQuery(artist.name); setView("list"); }}
                           className="group flex flex-col items-center gap-3 p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 cursor-pointer transition-all hover:-translate-y-1"
                         >
-                          <div className={`w-20 h-20 rounded-full bg-gradient-to-br ${colorClass} flex items-center justify-center border text-3xl font-bold`}>
-                            {artist.name[0]?.toUpperCase()}
-                          </div>
+                          {/* Artist photo or fallback initial */}
+                          {artist.photo ? (
+                            <img
+                              src={`${AUDIOBASE}/${artist.photo}`}
+                              alt={artist.name}
+                              className="w-20 h-20 rounded-full object-cover border-2 border-white/20 group-hover:border-indigo-500/50 transition-all"
+                            />
+                          ) : (
+                            <div className={`w-20 h-20 rounded-full bg-gradient-to-br ${colorClass} flex items-center justify-center border text-3xl font-bold`}>
+                              {artist.name[0]?.toUpperCase()}
+                            </div>
+                          )}
                           <div className="text-center min-w-0 w-full">
                             <p className="font-semibold text-white text-sm truncate">{artist.name}</p>
                             <p className="text-xs text-gray-400 mt-0.5">{artist.songs.length} songs</p>
@@ -868,7 +927,16 @@ export default function Dashboard() {
 
                     {/* Album art */}
                     <div className="relative aspect-square max-w-xs mx-auto mb-6 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                      <Music2 className="w-24 h-24 text-white/10" />
+                      {/* Show artist photo as album art if available */}
+                      {currentSong && getArtistPhoto(currentSong.artist) ? (
+                        <img
+                          src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
+                          alt={currentSong.artist}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <Music2 className="w-24 h-24 text-white/10" />
+                      )}
                       {isPlaying && (
                         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-end gap-1">
                           {[3, 5, 8, 6, 4, 7, 5, 3].map((h, i) => (
@@ -1052,9 +1120,18 @@ export default function Dashboard() {
                         <div
                           onClick={() => { setSearchQuery(currentSong.artist); setView("list"); }}
                           className="flex items-center gap-3 cursor-pointer hover:bg-white/5 rounded-xl p-2 -m-2 transition-colors">
-                          <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${artistColor(currentSong.artist)} flex items-center justify-center text-xl font-bold border`}>
-                            {currentSong.artist[0]?.toUpperCase()}
-                          </div>
+                          {/* Artist photo in player right panel */}
+                          {getArtistPhoto(currentSong.artist) ? (
+                            <img
+                              src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
+                              alt={currentSong.artist}
+                              className="w-12 h-12 rounded-full object-cover border-2 border-white/20 flex-shrink-0"
+                            />
+                          ) : (
+                            <div className={`w-12 h-12 rounded-full bg-gradient-to-br ${artistColor(currentSong.artist)} flex items-center justify-center text-xl font-bold border flex-shrink-0`}>
+                              {currentSong.artist[0]?.toUpperCase()}
+                            </div>
+                          )}
                           <div className="flex-1 min-w-0">
                             <p className="font-semibold text-white text-sm">{currentSong.artist}</p>
                             <p className="text-xs text-gray-400">
@@ -1132,18 +1209,28 @@ export default function Dashboard() {
 
               <div className="flex items-center gap-3 px-4 sm:px-6 py-3">
 
-                {/* Thumbnail */}
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500/30 to-purple-500/30 flex items-center justify-center flex-shrink-0 border border-white/10">
-                  {isPlaying ? (
-                    <div className="flex items-end gap-0.5">
-                      {[2, 3, 2].map((h, i) => (
-                        <div key={i}
-                          className="w-1 bg-indigo-400 rounded-full animate-pulse"
-                          style={{ height: `${h * 4}px`, animationDelay: `${i * 0.1}s` }} />
-                      ))}
-                    </div>
+                {/* Thumbnail — show artist photo if available */}
+                <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-white/10">
+                  {getArtistPhoto(currentSong.artist) ? (
+                    <img
+                      src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
+                      alt={currentSong.artist}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
-                    <Music2 className="w-5 h-5 text-indigo-400" />
+                    <div className="w-full h-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 flex items-center justify-center">
+                      {isPlaying ? (
+                        <div className="flex items-end gap-0.5">
+                          {[2, 3, 2].map((h, i) => (
+                            <div key={i}
+                              className="w-1 bg-indigo-400 rounded-full animate-pulse"
+                              style={{ height: `${h * 4}px`, animationDelay: `${i * 0.1}s` }} />
+                          ))}
+                        </div>
+                      ) : (
+                        <Music2 className="w-5 h-5 text-indigo-400" />
+                      )}
+                    </div>
                   )}
                 </div>
 
@@ -1153,7 +1240,6 @@ export default function Dashboard() {
                     {currentSong.name}
                   </p>
                   <p className="text-xs text-gray-400 truncate">{currentSong.artist}</p>
-                  {/* Live stream hint */}
                   {liveStreamActive && liveAudio.liveActive && (
                     <p className="text-xs text-red-400/70 flex items-center gap-1 mt-0.5">
                       <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block flex-shrink-0" />

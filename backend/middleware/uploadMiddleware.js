@@ -59,7 +59,7 @@ const uploadArtistPhoto = multer({
   storage:    artistStorage,
   fileFilter: imageFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB for images
+    fileSize: 10 * 1024 * 1024, 
     files:    1,
   },
 });

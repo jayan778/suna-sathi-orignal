@@ -8,9 +8,13 @@ const userSchema = new mongoose.Schema(
     role:       { type: String,  enum: ["user", "admin"], default: "user" },
     blocked:    { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
-    resetPasswordToken:   { type: String,  default: null },
-    resetPasswordExpires: { type: Date,    default: null },
+    resetPasswordToken:   { type: String, default: null },
+    resetPasswordExpires: { type: Date,   default: null },
     likedSongs: [{ type: mongoose.Schema.Types.ObjectId, ref: "Song" }],
+
+    // Failed login tracking
+    loginAttempts: { type: Number, default: 0 },
+    lockUntil:     { type: Date,   default: null },
   },
   { timestamps: true }
 );

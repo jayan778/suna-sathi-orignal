@@ -5,7 +5,8 @@ const fs     = require("fs");
 // Ensure directories exist
 const audioDir  = path.join(__dirname, "../uploads/audio");
 const artistDir = path.join(__dirname, "../uploads/artists");
-[audioDir, artistDir].forEach((dir) => {
+const coversDir = path.join(__dirname, "../uploads/covers");
+[audioDir, artistDir, coversDir].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -59,9 +60,34 @@ const uploadArtistPhoto = multer({
   storage:    artistStorage,
   fileFilter: imageFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024, 
+    fileSize: 10 * 1024 * 1024,
     files:    1,
   },
 });
 
-module.exports = { uploadAudio, uploadArtistPhoto };
+// ── Song cover storage ───────────────────────────────────
+const coverStorage = multer.diskStorage({
+  destination: coversDir,
+  filename: (req, file, cb) => {
+    cb(null, `cover_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`);
+  },
+});
+
+const uploadSong = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, file.fieldname === "cover" ? coversDir : audioDir);
+    },
+    filename: (req, file, cb) => {
+      const prefix = file.fieldname === "cover" ? "cover" : "audio";
+      cb(null, `${prefix}_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`);
+    },
+  }),
+  fileFilter: (req, file, cb) => {
+    if (file.fieldname === "cover") return imageFilter(req, file, cb);
+    return audioFilter(req, file, cb);
+  },
+  limits: { fileSize: 1024 * 1024 * 1024 },
+});
+
+module.exports = { uploadAudio, uploadArtistPhoto, uploadSong };

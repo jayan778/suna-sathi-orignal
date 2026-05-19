@@ -30,20 +30,28 @@ export default function AddMusic() {
   const [artistError,      setArtistError]     = useState("");
   const artistPhotoRef = useRef(null);
 
+  const [coverPreview, setCoverPreview] = useState(null);
+  const coverInputRef = useRef(null);
+
+  const [availableGenres, setAvailableGenres] = useState([]);
+  const [customGenre,     setCustomGenre]     = useState(false);
+
   const [form, setForm] = useState({
     name: "", artistId: "", artistName: "",
-    genre: "", year: "", isLiveOnly: false, audio: null,
+    genre: "", year: "", isLiveOnly: false, audio: null, cover: null,
   });
 
   const isValid = form.name.trim() && form.artistName.trim() && form.genre.trim() && String(form.year).trim() && form.audio;
 
-  const loadSongs    = async () => { const r = await api.get("/api/songs/all");      setSongs(r.data); };
-  const loadArtists  = async () => { const r = await api.get("/api/songs/artists");  setArtists(r.data); };
+  const loadSongs   = async () => { const r = await api.get("/api/songs/all");     setSongs(r.data); };
+  const loadArtists = async () => { const r = await api.get("/api/songs/artists"); setArtists(r.data); };
+  const loadGenres  = async () => { const r = await api.get("/api/songs/genres");  setAvailableGenres(r.data || []); };
 
   useEffect(() => {
     Promise.all([
       loadSongs().catch(() => setError("Failed to load songs")),
       loadArtists().catch(console.error),
+      loadGenres().catch(console.error),
     ]);
   }, []);
 
@@ -138,17 +146,20 @@ export default function AddMusic() {
       data.append("year",       form.year);
       data.append("isLiveOnly", form.isLiveOnly);
       data.append("audio",      form.audio);
+      if (form.cover) data.append("cover", form.cover);
 
       await api.post("/api/songs", data, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      setForm({ name: "", artistId: "", artistName: "", genre: "", year: "", isLiveOnly: false, audio: null });
+      setForm({ name: "", artistId: "", artistName: "", genre: "", year: "", isLiveOnly: false, audio: null, cover: null });
+      setCoverPreview(null);
+      setCustomGenre(false);
       setFileWarning("");
       document.querySelector('input[type="file"]')?.value && (document.querySelector('input[type="file"]').value = "");
       setSuccess("Song uploaded successfully!");
       setTimeout(() => setSuccess(""), 3000);
-      await loadSongs();
+      await Promise.all([loadSongs(), loadGenres()]);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to add song");
     } finally {
@@ -264,9 +275,41 @@ export default function AddMusic() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-300">Genre</label>
-                <input value={form.genre} onChange={(e) => setForm((p) => ({ ...p, genre: e.target.value }))}
-                  required placeholder="Pop, Rock, etc."
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all" />
+                {!customGenre ? (
+                  <div className="relative">
+                    <select
+                      value={form.genre}
+                      onChange={(e) => {
+                        if (e.target.value === "__new__") {
+                          setCustomGenre(true);
+                          setForm((p) => ({ ...p, genre: "" }));
+                        } else {
+                          setForm((p) => ({ ...p, genre: e.target.value }));
+                        }
+                      }}
+                      required
+                      className="w-full appearance-none px-4 py-3 pr-10 bg-[#0B0F1A] border border-white/10 rounded-xl text-white focus:outline-none focus:border-indigo-500/50 transition-all cursor-pointer">
+                      <option value="" disabled>Select genre...</option>
+                      {availableGenres.map((g) => (
+                        <option key={g} value={g}>{g}</option>
+                      ))}
+                      <option value="__new__">➕ Add New Genre</option>
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <input
+                      value={form.genre}
+                      onChange={(e) => setForm((p) => ({ ...p, genre: e.target.value }))}
+                      required autoFocus placeholder="e.g. Jazz, Classical..."
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all" />
+                    <button type="button" onClick={() => { setCustomGenre(false); setForm((p) => ({ ...p, genre: "" })); }}
+                      className="text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+                      ← Back to existing genres
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-300">Release Year</label>
@@ -304,7 +347,7 @@ export default function AddMusic() {
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 leading-relaxed pl-6">
-                    Dashboard + Live stream
+                    Dashboard only
                   </p>
                 </button>
 
@@ -347,10 +390,48 @@ export default function AddMusic() {
                 <div className="flex items-center gap-2 px-3 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-lg">
                   <Music2 className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />
                   <p className="text-xs text-indigo-300">
-                    This song will appear in the user dashboard and also play during live streams.
+                    This song will appear in the user dashboard only. It will <strong>not</strong> be included in live streams unless you select it manually in Live Control.
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* Cover image */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">
+                Cover Image <span className="text-gray-500 font-normal">(optional)</span>
+              </label>
+              <div className="flex items-center gap-4">
+                <div
+                  onClick={() => coverInputRef.current?.click()}
+                  className="relative w-20 h-20 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border-2 border-dashed border-indigo-500/30 flex items-center justify-center cursor-pointer hover:border-indigo-500/60 transition-all overflow-hidden flex-shrink-0 group">
+                  {coverPreview ? (
+                    <img src={coverPreview} alt="cover preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <Camera className="w-7 h-7 text-indigo-400 group-hover:scale-110 transition-transform" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  {coverPreview ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-green-300 truncate">{form.cover?.name}</span>
+                      <button type="button"
+                        onClick={() => { setForm((p) => ({ ...p, cover: null })); setCoverPreview(null); if (coverInputRef.current) coverInputRef.current.value = ""; }}
+                        className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-red-400 transition-colors flex-shrink-0">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500">Click the square to upload a cover image. JPG, PNG, WEBP supported.</p>
+                  )}
+                </div>
+              </div>
+              <input ref={coverInputRef} type="file" accept="image/*" className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  setForm((p) => ({ ...p, cover: file }));
+                  setCoverPreview(file ? URL.createObjectURL(file) : null);
+                }} />
             </div>
 
             {/* Audio file */}
@@ -435,7 +516,7 @@ export default function AddMusic() {
                 <p className="text-xl font-bold text-white">{regularCount}</p>
               </div>
               <p className="text-xs text-gray-400">Regular</p>
-              <p className="text-xs text-gray-600">Dashboard + Live</p>
+              <p className="text-xs text-gray-600">Dashboard only</p>
             </div>
             <div className="px-4 py-3 bg-red-500/10 rounded-xl border border-red-500/20 text-center">
               <div className="flex items-center justify-center gap-1.5 mb-1">
@@ -485,7 +566,7 @@ export default function AddMusic() {
                     <p className="text-xs mt-0.5">
                       {song.isLiveOnly
                         ? <span className="text-red-400/70">Live stream only · hidden from dashboard</span>
-                        : <span className="text-indigo-400/70">Dashboard + Live stream</span>
+                        : <span className="text-indigo-400/70">Dashboard only</span>
                       }
                     </p>
                   </div>

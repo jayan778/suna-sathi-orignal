@@ -108,8 +108,10 @@ exports.updateArtistPhoto = async (req, res) => {
 exports.addSong = async (req, res) => {
   try {
     const { name, artist, artistId, genre, year, isLiveOnly } = req.body;
+    const audioFile = req.files?.audio?.[0];
+    const coverFile = req.files?.cover?.[0];
 
-    if (!name || !artist || !genre || !year || !req.file) {
+    if (!name || !artist || !genre || !year || !audioFile) {
       return res.status(400).json({ message: "All fields required" });
     }
 
@@ -120,7 +122,7 @@ exports.addSong = async (req, res) => {
       resolvedArtistId = found._id;
     }
 
-    const filePath = path.join(__dirname, "../uploads/audio", req.file.filename);
+    const filePath = path.join(__dirname, "../uploads/audio", audioFile.filename);
     const duration = await extractDuration(filePath);
 
     if (duration <= 0) {
@@ -135,7 +137,8 @@ exports.addSong = async (req, res) => {
       artistId:   resolvedArtistId,
       genre,
       year,
-      file:       `audio/${req.file.filename}`,
+      file:       `audio/${audioFile.filename}`,
+      cover:      coverFile ? `covers/${coverFile.filename}` : "",
       duration,
       isLiveOnly: isLiveOnly === "true" || isLiveOnly === true,
       createdBy:  req.user.id,
@@ -234,16 +237,21 @@ exports.deleteSong = async (req, res) => {
     const song = await Song.findById(req.params.id);
     if (!song) return res.status(404).json({ message: "Song not found" });
 
-    const sanitizedFilename = path.basename(song.file);
-    const uploadsDir        = path.resolve(__dirname, "../uploads");
-    const filePath          = path.join(uploadsDir, sanitizedFilename);
-    const resolvedPath      = path.resolve(filePath);
+    const uploadsDir = path.resolve(__dirname, "../uploads");
 
-    if (!resolvedPath.startsWith(uploadsDir)) {
-      return res.status(400).json({ message: "Invalid file path" });
+    const audioFilename  = path.basename(song.file);
+    const audioPath      = path.resolve(path.join(uploadsDir, "audio", audioFilename));
+    if (audioPath.startsWith(uploadsDir)) {
+      try { await fs.unlink(audioPath); } catch {}
     }
 
-    try { await fs.unlink(resolvedPath); } catch {}
+    if (song.cover) {
+      const coverFilename = path.basename(song.cover);
+      const coverPath     = path.resolve(path.join(uploadsDir, "covers", coverFilename));
+      if (coverPath.startsWith(uploadsDir)) {
+        try { await fs.unlink(coverPath); } catch {}
+      }
+    }
 
     await Song.findByIdAndDelete(req.params.id);
     radioScheduler.reload().catch(console.error);

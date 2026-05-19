@@ -81,9 +81,12 @@ export default function Live() {
 
   // ── Load initial session ───────────────────────────────
   useEffect(() => {
+    let mounted = true;
+
     const load = async () => {
       try {
         const res = await api.get("/api/live/session");
+        if (!mounted) return;
 
         if (!res.data.isActive) {
           setLoading(false);
@@ -97,26 +100,27 @@ export default function Live() {
         // Load chat history
         try {
           const chatRes = await api.get("/api/live/chat");
-          setMessages(chatRes.data || []);
+          if (mounted) setMessages(chatRes.data || []);
         } catch { /* ignore */ }
 
         // Start playing from the correct position reported by server
         const seekTo = res.data.positionInSong || 0;
-        if (res.data.currentSong) {
+        if (res.data.currentSong && mounted) {
           await tryLoadAndPlay(res.data.currentSong, seekTo);
         }
 
       } catch (err) {
+        if (!mounted) return;
         console.error("Failed to load session:", err);
         setLoadError("Failed to connect to the live stream.");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
     load();
 
-    // Cleanup: stop live audio when leaving the page
     return () => {
+      mounted = false;
       liveAudio.stopLive();
     };
   }, [tryLoadAndPlay]);

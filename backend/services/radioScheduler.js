@@ -18,10 +18,10 @@ class RadioScheduler {
 
   async _doLoad() {
     try {
-      // ✅ FIXED: Load ALL songs for the live radio (both regular AND live-only)
-      // Live-only songs are EXCLUSIVE to the live stream — they won't appear in dashboard
-      // Regular songs appear in dashboard AND in the live stream
-      const songs = await Song.find({})
+      // Only load songs explicitly marked as live-only for the default radio queue.
+      // Regular (dashboard) songs are excluded — they play on live only when admin
+      // manually selects them via loadSingle().
+      const songs = await Song.find({ isLiveOnly: true })
         .sort({ createdAt: 1 })
         .lean();
 
@@ -47,21 +47,15 @@ class RadioScheduler {
       this._totalDuration = this._durations.reduce((a, b) => a + b, 0);
       this._loaded        = true;
 
-      const liveOnlyCount = songs.filter(s => s.isLiveOnly).length;
-      const regularCount  = songs.filter(s => !s.isLiveOnly).length;
-
       console.log(
-        `RadioScheduler loaded: ${songs.length} songs total ` +
-        `(${regularCount} regular + ${liveOnlyCount} live-only), ` +
+        `RadioScheduler loaded: ${songs.length} live-only songs, ` +
         `total ${(this._totalDuration / 60).toFixed(1)} min`
       );
 
       songs.forEach((s, i) => {
-        const tag = s.isLiveOnly ? "[LIVE-ONLY]" : "[regular]";
         console.log(
-          `  [${i}] ${tag} "${s.name}" — ` +
-          `${this._durations[i].toFixed(1)}s ` +
-          `(${(this._durations[i] / 60).toFixed(2)} min)`
+          `  [${i}] "${s.name}" — ` +
+          `${this._durations[i].toFixed(1)}s`
         );
       });
     } catch (err) {
@@ -77,12 +71,26 @@ class RadioScheduler {
     await this.load();
   }
 
+  async loadSingle(songId) {
+    const song = await Song.findById(songId).lean();
+    if (!song) throw new Error("Song not found");
+
+    const duration = Number(song.duration) > 0 ? Number(song.duration) : 240;
+    this._songs         = [song];
+    this._durations     = [duration];
+    this._totalDuration = duration;
+    this._loaded        = true;
+    this._loadPromise   = Promise.resolve();
+
+    console.log(`RadioScheduler: single-song mode — "${song.name}" (${duration.toFixed(1)}s)`);
+  }
+
   startStream() {
     this._streamStart = new Date();
     console.log(`Stream clock started at ${this._streamStart.toISOString()}`);
     console.log(
       `Play order: ${this._songs
-        .map((s, i) => `"${s.name}"${s.isLiveOnly ? "🔴" : ""} (${this._durations[i].toFixed(0)}s)`)
+        .map((s, i) => `"${s.name}" (${this._durations[i].toFixed(0)}s)`)
         .join(" → ")}`
     );
   }

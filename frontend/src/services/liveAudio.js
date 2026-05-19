@@ -1,11 +1,6 @@
 const AUDIOBASE = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/uploads`;
 
-/**
- * Build a correct audio URL from a song.file path like "audio/filename.mp3"
- * IMPORTANT: Do NOT use encodeURIComponent on the full path — it encodes
- * the slash, turning "audio/file.mp3" into "audio%2Ffile.mp3" which breaks.
- * Only encode the filename portion, keeping the directory slash intact.
- */
+
 function buildAudioUrl(file) {
   if (!file) return "";
   const slashIdx = file.indexOf("/");

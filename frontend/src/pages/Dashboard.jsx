@@ -3,7 +3,7 @@ import {
   ArrowLeft, Search, Music2, Heart, Plus, Share2,
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat,
   ListMusic, X, ChevronRight, Volume2, Clock,
-  LayoutGrid, LayoutList, Mic2, ChevronUp, Radio,
+  LayoutGrid, LayoutList, Mic2, ChevronUp, Radio, Library, Trash2, Tag,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
@@ -383,6 +383,38 @@ export default function Dashboard() {
     setShowShareModal(true);
   };
 
+  const deletePlaylist = useCallback(async (playlist) => {
+    await api.delete(`/api/playlists/${playlist.id}`);
+    if (selectedPlaylist?.id === playlist.id) {
+      setMode("all");
+      setSelectedPlaylist(null);
+    }
+    await refreshPlaylists();
+  }, [selectedPlaylist, refreshPlaylists]);
+
+  // ── Genre helpers ──────────────────────────────────────
+  const genreColor = (name) => {
+    const palettes = [
+      "from-indigo-500 to-blue-600",
+      "from-purple-500 to-pink-600",
+      "from-teal-500 to-cyan-600",
+      "from-amber-500 to-orange-600",
+      "from-green-500 to-emerald-600",
+      "from-rose-500 to-red-600",
+      "from-fuchsia-500 to-violet-600",
+      "from-sky-500 to-indigo-600",
+    ];
+    return palettes[(name?.charCodeAt(0) || 0) % palettes.length];
+  };
+
+  const genreCounts = useMemo(() => {
+    const counts = {};
+    songs.forEach((s) => {
+      if (s.genre && !s.isLiveOnly) counts[s.genre] = (counts[s.genre] || 0) + 1;
+    });
+    return counts;
+  }, [songs]);
+
   // ── Artist color helper ────────────────────────────────
   const artistColor = (name) => {
     const colors = [
@@ -452,9 +484,10 @@ export default function Dashboard() {
 
         <Sidebar
           playlists={playlists}
-          activeMode={mode}
+          activeMode={view === "library" ? "library" : mode}
           activePlaylistId={selectedPlaylist?.id || null}
           onHome={() => { setMode("all"); setSelectedPlaylist(null); setView("list"); }}
+          onLibrary={() => { setMode("all"); setSelectedPlaylist(null); setView("library"); }}
           onSelectPlaylist={(p) => {
             const n = normalizePlaylist(p);
             setMode("playlist");
@@ -463,6 +496,7 @@ export default function Dashboard() {
           }}
           onSelectLiked={() => { setMode("liked"); setSelectedPlaylist(null); setView("list"); }}
           onPlaylistsChanged={refreshPlaylists}
+          onDeletePlaylist={deletePlaylist}
         />
 
         {/* Main content */}
@@ -494,6 +528,15 @@ export default function Dashboard() {
                         ? selectedPlaylist?.name || "Playlist"
                         : mode === "liked" ? "Liked Songs" : "Browse Music"}
                     </h1>
+                    {mode === "playlist" && selectedPlaylist && (
+                      <button
+                        onClick={() => deletePlaylist(selectedPlaylist)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 hover:text-red-300 text-xs font-medium transition-all"
+                        title="Delete this playlist">
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete Playlist
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-3 lg:ml-auto">
@@ -609,8 +652,10 @@ export default function Dashboard() {
                               )}
                             </div>
                             <div className="col-span-5 flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center flex-shrink-0">
-                                <Music2 className="w-4 h-4 text-indigo-400" />
+                              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                {song.cover
+                                  ? <img src={`${AUDIOBASE}/${song.cover}`} alt={song.name} className="w-full h-full object-cover" />
+                                  : <Music2 className="w-4 h-4 text-indigo-400" />}
                               </div>
                               <div className="min-w-0">
                                 <p className={`font-medium truncate text-sm ${active ? "text-indigo-300" : "text-white"}`}>
@@ -688,8 +733,10 @@ export default function Dashboard() {
                               : "border-white/10 bg-white/5 hover:bg-white/10"
                           }`}
                         >
-                          <div className="relative aspect-square bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                            <Music2 className="w-10 h-10 text-white/20" />
+                          <div className="relative aspect-square bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-pink-500/20 flex items-center justify-center overflow-hidden">
+                            {song.cover
+                              ? <img src={`${AUDIOBASE}/${song.cover}`} alt={song.name} className="w-full h-full object-cover" />
+                              : <Music2 className="w-10 h-10 text-white/20" />}
                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                               {playing ? (
                                 <div className="flex items-end gap-0.5 h-6">
@@ -760,6 +807,104 @@ export default function Dashboard() {
                     })}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              LIBRARY VIEW
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
+          {view === "library" && (
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 py-6 space-y-6">
+              <div className="max-w-7xl mx-auto space-y-6">
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  <Library className="w-6 h-6 text-indigo-400" />Your Library
+                </h1>
+
+                {/* Liked Songs card */}
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Quick Access</h2>
+                  <button
+                    onClick={() => { setMode("liked"); setSelectedPlaylist(null); setView("list"); }}
+                    className="flex items-center gap-4 w-full p-4 bg-gradient-to-r from-pink-500/10 to-red-500/10 hover:from-pink-500/20 hover:to-red-500/20 rounded-2xl border border-pink-500/20 transition-all text-left">
+                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-pink-500 to-red-500 flex items-center justify-center flex-shrink-0">
+                      <Heart className="w-7 h-7 text-white fill-white" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-white">Liked Songs</p>
+                      <p className="text-sm text-gray-400">{likedSongIds.length} songs</p>
+                    </div>
+                  </button>
+                </div>
+
+                {/* Browse by Genre */}
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Browse by Genre</h2>
+                  {Object.keys(genreCounts).length === 0 ? (
+                    <p className="text-sm text-gray-500">No genres yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                      {Object.entries(genreCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([genre, count]) => (
+                          <button
+                            key={genre}
+                            onClick={() => { setActiveGenre(genre); setMode("all"); setSelectedPlaylist(null); setView("list"); }}
+                            className="group relative overflow-hidden rounded-2xl aspect-square flex flex-col items-start justify-end p-4 transition-all hover:-translate-y-1 hover:shadow-xl">
+                            <div className={`absolute inset-0 bg-gradient-to-br ${genreColor(genre)} opacity-80 group-hover:opacity-100 transition-opacity`} />
+                            <div className="absolute inset-0 bg-black/20" />
+                            <div className="relative z-10">
+                              <Tag className="w-5 h-5 text-white/70 mb-1" />
+                              <p className="font-bold text-white text-sm leading-tight truncate w-full">{genre}</p>
+                              <p className="text-white/70 text-xs mt-0.5">{count} song{count !== 1 ? "s" : ""}</p>
+                            </div>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Playlists */}
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Playlists</h2>
+                  {playlists.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      <ListMusic className="w-12 h-12 mx-auto mb-3 text-gray-700" />
+                      <p>No playlists yet. Create one from the sidebar.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                      {playlists.map((p) => (
+                        <div key={p.id} className="group relative">
+                          <button
+                            onClick={() => {
+                              const n = normalizePlaylist(p);
+                              setMode("playlist");
+                              setSelectedPlaylist(n);
+                              setView("list");
+                            }}
+                            className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-purple-500/40 cursor-pointer transition-all hover:-translate-y-1 text-center w-full">
+                            <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-purple-500/30 to-pink-500/30 flex items-center justify-center border border-purple-500/20">
+                              <span className="text-2xl font-bold text-purple-300">
+                                {p.name?.[0]?.toUpperCase()}
+                              </span>
+                            </div>
+                            <div className="w-full min-w-0">
+                              <p className="font-semibold text-white text-sm truncate">{p.name}</p>
+                              <p className="text-xs text-gray-400">{p.songs?.length || 0} songs</p>
+                            </div>
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); deletePlaylist(normalizePlaylist(p)); }}
+                            className="absolute top-2 right-2 p-1.5 rounded-lg opacity-40 group-hover:opacity-100 bg-black/60 hover:bg-red-500/30 text-gray-400 hover:text-red-400 transition-all"
+                            title="Delete playlist">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -927,8 +1072,13 @@ export default function Dashboard() {
 
                     {/* Album art */}
                     <div className="relative aspect-square max-w-xs mx-auto mb-6 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                      {/* Show artist photo as album art if available */}
-                      {currentSong && getArtistPhoto(currentSong.artist) ? (
+                      {currentSong?.cover ? (
+                        <img
+                          src={`${AUDIOBASE}/${currentSong.cover}`}
+                          alt={currentSong.name}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : currentSong && getArtistPhoto(currentSong.artist) ? (
                         <img
                           src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
                           alt={currentSong.artist}
@@ -1209,9 +1359,15 @@ export default function Dashboard() {
 
               <div className="flex items-center gap-3 px-4 sm:px-6 py-3">
 
-                {/* Thumbnail — show artist photo if available */}
+                {/* Thumbnail — prefer cover art, fall back to artist photo */}
                 <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-white/10">
-                  {getArtistPhoto(currentSong.artist) ? (
+                  {currentSong.cover ? (
+                    <img
+                      src={`${AUDIOBASE}/${currentSong.cover}`}
+                      alt={currentSong.name}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : getArtistPhoto(currentSong.artist) ? (
                     <img
                       src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
                       alt={currentSong.artist}

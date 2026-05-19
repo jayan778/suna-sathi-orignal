@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Home, Library, PlusCircle, ListMusic, Heart, X } from "lucide-react";
+import { Home, Library, PlusCircle, ListMusic, Heart, X, Trash2 } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
@@ -9,9 +9,11 @@ export default function Sidebar({
   activeMode       = "all",
   activePlaylistId = null,
   onHome,
+  onLibrary,
   onSelectPlaylist,
   onSelectLiked,
   onPlaylistsChanged,
+  onDeletePlaylist,
 }) {
   const navigate = useNavigate();
   const { user, likedSongIds } = useAuth();
@@ -89,7 +91,12 @@ export default function Sidebar({
 
           {/* Library */}
           <button type="button"
-            className="flex items-center gap-3 w-full p-3 rounded-xl hover:bg-white/5 text-gray-400 hover:text-white transition-all">
+            onClick={() => { closeDrawer(); onLibrary?.(); }}
+            className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all ${
+              activeMode === "library"
+                ? "bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-white border border-indigo-500/50"
+                : "hover:bg-white/5 text-gray-400 hover:text-white"
+            }`}>
             <Library className="w-5 h-5" />
             <span>Library</span>
           </button>
@@ -147,23 +154,32 @@ export default function Sidebar({
               {playlists.length === 0 ? (
                 <p className="text-xs text-gray-600 px-3 py-2">No playlists yet</p>
               ) : playlists.map((p) => (
-                <button key={p.id} type="button"
-                  onClick={() => { closeDrawer(); onSelectPlaylist?.(p); }}
-                  className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all text-sm ${
-                    activeMode === "playlist" && activePlaylistId === p.id
-                      ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-white border border-purple-500/50"
-                      : "hover:bg-white/5 text-gray-400 hover:text-white"
-                  }`}>
-                  <div className="w-9 h-9 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-lg flex items-center justify-center flex-shrink-0 border border-purple-500/30">
-                    <span className="text-xs font-bold text-purple-300">
-                      {p.name?.[0]?.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1 text-left">
-                    <span className="block truncate font-medium">{p.name}</span>
-                    <span className="text-xs text-gray-500">{(p.songs?.length || 0)} songs</span>
-                  </div>
-                </button>
+                <div key={p.id} className="group relative">
+                  <button type="button"
+                    onClick={() => { closeDrawer(); onSelectPlaylist?.(p); }}
+                    className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all text-sm pr-9 ${
+                      activeMode === "playlist" && activePlaylistId === p.id
+                        ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-white border border-purple-500/50"
+                        : "hover:bg-white/5 text-gray-400 hover:text-white"
+                    }`}>
+                    <div className="w-9 h-9 bg-gradient-to-br from-purple-500/20 to-pink-500/20 rounded-lg flex items-center justify-center flex-shrink-0 border border-purple-500/30">
+                      <span className="text-xs font-bold text-purple-300">
+                        {p.name?.[0]?.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1 text-left">
+                      <span className="block truncate font-medium">{p.name}</span>
+                      <span className="text-xs text-gray-500">{(p.songs?.length || 0)} songs</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDeletePlaylist?.(p); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg opacity-30 group-hover:opacity-100 hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-all"
+                    title="Delete playlist">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               ))}
             </div>
           )}

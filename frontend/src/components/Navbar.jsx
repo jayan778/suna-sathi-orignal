@@ -40,8 +40,14 @@ export default function Navbar() {
                 <span>{dashboardLabel}</span>
               </Link>
 
-              {/* Live button — only for regular users */}
-              {user.role !== "admin" && (
+              {/* Live button */}
+              {user.role === "admin" ? (
+                <Link to="/admin/live"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 hover:border-red-500/40 transition-all">
+                  <Radio className="w-4 h-4" />
+                  <span>Live Stream</span>
+                </Link>
+              ) : (
                 <Link to="/live"
                   className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 hover:border-red-500/40 transition-all">
                   <Radio className="w-4 h-4" />
@@ -89,7 +95,14 @@ export default function Navbar() {
                   <span>{dashboardLabel}</span>
                 </Link>
 
-                {user.role !== "admin" && (
+                {user.role === "admin" ? (
+                  <Link to="/admin/live"
+                    className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 transition-all"
+                    onClick={() => setOpen(false)}>
+                    <Radio className="w-4 h-4" />
+                    <span>Live Stream</span>
+                  </Link>
+                ) : (
                   <Link to="/live"
                     className="flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 transition-all"
                     onClick={() => setOpen(false)}>

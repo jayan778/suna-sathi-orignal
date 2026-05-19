@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
   Radio, Music2, Play, Pause,
-  Users, Square, ArrowLeft, ListMusic, Volume2,
+  Users, Square, ArrowLeft, ListMusic, Volume2, Search, Check,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { connectSocket } from "../services/socket";
@@ -26,6 +26,8 @@ export default function AdminLive() {
   const [listenerCount,      setListenerCount]      = useState(0);
   const [sessionName,        setSessionName]        = useState("Live Session");
   const [error,              setError]              = useState("");
+  const [selectedSongId,     setSelectedSongId]     = useState(null);
+  const [songSearch,         setSongSearch]         = useState("");
 
   const pad2 = (n) => String(Math.floor(Math.max(0, n))).padStart(2, "0");
   const fmt  = (s) => `${pad2(s / 60)}:${pad2(s % 60)}`;
@@ -49,6 +51,8 @@ export default function AdminLive() {
 
   // Load data
   useEffect(() => {
+    let mounted = true;
+
     const load = async () => {
       try {
         // ✅ Load ALL songs (admin sees everything including live-only)
@@ -56,6 +60,8 @@ export default function AdminLive() {
           api.get("/api/live/session"),
           api.get("/api/songs/all"),
         ]);
+
+        if (!mounted) return;
 
         setSongs(songsRes.data || []);
 
@@ -65,7 +71,7 @@ export default function AdminLive() {
           setCurrentSongIndex(sessionRes.data.songIndex || 0);
           setListenerCount(sessionRes.data.listeners || 0);
 
-          if (sessionRes.data.currentSong) {
+          if (sessionRes.data.currentSong && mounted) {
             const seekTo = sessionRes.data.positionInSong || 0;
             try {
               await liveAudio.loadLiveAndPlay(sessionRes.data.currentSong, seekTo);
@@ -75,12 +81,17 @@ export default function AdminLive() {
           }
         }
       } catch {
-        setError("Failed to load data");
+        if (mounted) setError("Failed to load data");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
     load();
+
+    return () => {
+      mounted = false;
+      liveAudio.stopLive();
+    };
   }, []);
 
   // Socket
@@ -120,12 +131,13 @@ export default function AdminLive() {
   }, [session?.isActive]);
 
   const startSession = async () => {
-    if (!songs.length) { setError("No songs available"); return; }
+    if (!selectedSongId) { setError("Please select a song to go live"); return; }
     setStarting(true);
     setError("");
     try {
       const res = await api.post("/api/live/start", {
         playlistName: sessionName,
+        songId:       selectedSongId,
       });
 
       setSession(res.data);
@@ -241,74 +253,111 @@ export default function AdminLive() {
 
       {/* ── Setup Panel (no active session) ── */}
       {!session?.isActive ? (
-        <div className="max-w-xl">
-          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+        <div className="max-w-2xl space-y-5">
 
-            <div className="px-6 py-5 border-b border-white/10">
-              <h2 className="text-lg font-bold text-white">Start a Live Stream</h2>
-              <p className="text-gray-400 text-sm mt-1">
-                The radio scheduler plays all songs (regular + live-only) in sequence.
-              </p>
+          {/* Session name + Go Live */}
+          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 space-y-5">
+            <div>
+              <h2 className="text-lg font-bold text-white mb-1">Start a Live Stream</h2>
+              <p className="text-gray-400 text-sm">Select one song below — only that song will play for all listeners.</p>
             </div>
 
-            <div className="px-6 py-6 space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Session Name</label>
+              <input
+                value={sessionName}
+                onChange={(e) => setSessionName(e.target.value)}
+                placeholder="e.g. Friday Night Vibes"
+                className="w-full px-4 py-3 bg-[#0B0F1A] border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500/60 transition-all text-sm"
+              />
+            </div>
 
-              {/* Session name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
-                  Session Name
-                </label>
+            {/* Selected song preview */}
+            {selectedSongId && (() => {
+              const s = songs.find(x => x._id === selectedSongId);
+              return s ? (
+                <div className="flex items-center gap-3 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl">
+                  <div className="w-9 h-9 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                    {s.isLiveOnly ? <Radio className="w-4 h-4 text-red-400" /> : <Music2 className="w-4 h-4 text-red-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{s.name}</p>
+                    <p className="text-xs text-gray-400 truncate">{s.artist} · {s.genre}</p>
+                  </div>
+                  <Check className="w-4 h-4 text-red-400 flex-shrink-0" />
+                </div>
+              ) : null;
+            })()}
+
+            <button
+              onClick={startSession}
+              disabled={starting || !selectedSongId}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold shadow-lg shadow-red-500/40 hover:shadow-red-500/60 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
+            >
+              {starting
+                ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                : <Radio className="w-5 h-5" />}
+              {starting ? "Starting..." : selectedSongId ? "Go Live" : "Select a Song First"}
+            </button>
+          </div>
+
+          {/* Song picker */}
+          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/10 flex items-center gap-3">
+              <ListMusic className="w-4 h-4 text-gray-400" />
+              <h3 className="font-semibold text-white text-sm">Choose a Song</h3>
+              <span className="text-xs text-gray-500 ml-auto">{songs.length} songs</span>
+            </div>
+
+            <div className="px-4 py-3 border-b border-white/5">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                 <input
-                  value={sessionName}
-                  onChange={(e) => setSessionName(e.target.value)}
-                  placeholder="e.g. Friday Night Vibes"
-                  className="w-full px-4 py-3 bg-[#0B0F1A] border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500/60 transition-all text-sm"
+                  type="text"
+                  value={songSearch}
+                  onChange={(e) => setSongSearch(e.target.value)}
+                  placeholder="Search songs or artists..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all"
                 />
               </div>
+            </div>
 
-              {/* Stats row — shows both regular and live-only counts */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="px-3 py-3 bg-white/5 rounded-xl border border-white/10 text-center">
-                  <p className="text-lg font-bold text-white">{regularCount}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Regular Songs</p>
-                  <p className="text-xs text-gray-600 mt-0.5">Dashboard + Live</p>
-                </div>
-                <div className="px-3 py-3 bg-red-500/10 rounded-xl border border-red-500/20 text-center">
-                  <p className="text-lg font-bold text-red-400">{liveOnlyCount}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Live-Only Songs</p>
-                  <p className="text-xs text-gray-600 mt-0.5">Live Stream Only</p>
-                </div>
-              </div>
-
-              {/* Song separation legend */}
-              <div className="space-y-2">
-                <div className="flex items-start gap-3 px-4 py-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
-                  <Music2 className="w-4 h-4 text-indigo-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-indigo-300">
-                    <strong>Regular songs</strong> — available in the dashboard for users to browse &amp; play, and also included in the live radio stream.
-                  </p>
-                </div>
-                <div className="flex items-start gap-3 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-                  <Radio className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-300">
-                    <strong>Live-only songs</strong> — hidden from the dashboard, exclusive to the live radio stream. Perfect for premieres or special content.
-                  </p>
-                </div>
-              </div>
-
-              {/* Go live button */}
-              <button
-                onClick={startSession}
-                disabled={starting || !songs.length}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-gradient-to-r from-red-500 to-pink-500 text-white font-semibold shadow-lg shadow-red-500/40 hover:shadow-red-500/60 transition-all hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm"
-              >
-                {starting ? (
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Radio className="w-5 h-5" />
-                )}
-                {starting ? "Starting..." : `Go Live (${songs.length} songs)`}
-              </button>
+            <div className="divide-y divide-white/5 max-h-80 overflow-y-auto">
+              {songs
+                .filter(s => !songSearch.trim() ||
+                  s.name.toLowerCase().includes(songSearch.toLowerCase()) ||
+                  s.artist.toLowerCase().includes(songSearch.toLowerCase()))
+                .map((song) => {
+                  const selected = selectedSongId === song._id;
+                  return (
+                    <button
+                      key={song._id}
+                      type="button"
+                      onClick={() => setSelectedSongId(song._id)}
+                      className={`w-full flex items-center gap-3 px-5 py-3.5 text-left transition-all ${
+                        selected ? "bg-red-500/15 border-l-2 border-red-500" : "hover:bg-white/5"
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                        selected ? "bg-red-500/30" : song.isLiveOnly ? "bg-red-500/10" : "bg-white/5"
+                      }`}>
+                        {song.isLiveOnly
+                          ? <Radio className={`w-4 h-4 ${selected ? "text-red-300" : "text-red-400"}`} />
+                          : <Music2 className={`w-4 h-4 ${selected ? "text-red-300" : "text-indigo-400"}`} />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium truncate ${selected ? "text-red-300" : "text-white"}`}>
+                          {song.name}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">{song.artist} · {song.genre} · {song.year}</p>
+                      </div>
+                      {song.isLiveOnly && (
+                        <span className="text-xs px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded-full border border-red-500/30 flex-shrink-0">LIVE</span>
+                      )}
+                      {selected && <Check className="w-4 h-4 text-red-400 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
             </div>
           </div>
         </div>
@@ -326,7 +375,7 @@ export default function AdminLive() {
                 <h2 className="text-xl font-bold">Now Playing</h2>
                 <p className="text-sm text-gray-400 mt-0.5">{session.playlistName}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Radio scheduler — auto-advancing through all songs
+                  Broadcasting one song live to all listeners
                 </p>
               </div>
               <button
@@ -375,7 +424,7 @@ export default function AdminLive() {
               </div>
               <p className="text-gray-400 text-sm">{currentSong?.artist}</p>
               <p className="text-xs text-gray-600 mt-1">
-                Track {currentSongIndex + 1} of {radioQueue.length} · Auto-advancing
+                Playing live · looping for all listeners
               </p>
             </div>
 
@@ -413,7 +462,7 @@ export default function AdminLive() {
             </div>
 
             <p className="text-center text-xs text-gray-500 mb-5">
-              Admin preview — listeners follow the radio scheduler automatically
+              Admin preview — all listeners are synced to this song
             </p>
 
             {/* Volume */}
@@ -474,7 +523,7 @@ export default function AdminLive() {
 
             <div className="flex-1 overflow-y-auto divide-y divide-white/5">
               {radioQueue.map((song, index) => {
-                const active = index === currentSongIndex;
+                const active = currentSong && song._id === currentSong._id;
                 return (
                   <div
                     key={song._id || index}

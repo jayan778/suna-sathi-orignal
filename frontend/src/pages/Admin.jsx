@@ -76,10 +76,12 @@ export default function Admin() {
         </div>
         <div className="flex items-center gap-3">
           {liveSession?.isActive && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-red-500/10 rounded-full border border-red-500/30">
+            <button
+              onClick={() => navigate("/admin/live")}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 rounded-full border border-red-500/30 transition-colors">
               <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
               <span className="text-sm font-semibold text-red-400">Live Active</span>
-            </div>
+            </button>
           )}
           <button
             onClick={() => navigate("/admin/add-music")}

@@ -48,14 +48,18 @@ exports.getLiveSession = async (req, res) => {
 /* START LIVE SESSION (ADMIN) */
 exports.startLiveSession = async (req, res) => {
   try {
-    const { playlistName } = req.body;
+    const { playlistName, songId } = req.body;
 
     await LiveSession.updateMany({ isActive: true }, { isActive: false });
 
-    if (!radioScheduler.loaded) await radioScheduler.load();
+    if (songId) {
+      await radioScheduler.loadSingle(songId);
+    } else {
+      if (!radioScheduler.loaded) await radioScheduler.load();
+    }
 
-    if (!radioScheduler.songs.length) {
-      return res.status(400).json({ message: "No songs available to stream" });
+    if (!radioScheduler.songs.length && !songId) {
+      return res.status(400).json({ message: "No live-only songs available. Select a specific song or mark some songs as Live Only." });
     }
 
     radioScheduler.startStream();

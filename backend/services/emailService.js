@@ -1,20 +1,11 @@
-const nodemailer = require("nodemailer");
+const { Resend } = require("resend");
 
-const transporter = nodemailer.createTransport({
-  host:   "smtp.gmail.com",
-  port:   587,
-  secure: false,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-  tls: { rejectUnauthorized: false },
-});
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /* OTP EMAIL */
 const sendOTPEmail = async (toEmail, otp, userName) => {
-  const mailOptions = {
-    from:    `"SunaSathi" <${process.env.GMAIL_USER}>`,
+  await resend.emails.send({
+    from:    "SunaSathi <onboarding@resend.dev>",
     to:      toEmail,
     subject: "Verify your SunaSathi account — OTP inside",
     html: `
@@ -50,7 +41,7 @@ const sendOTPEmail = async (toEmail, otp, userName) => {
               </tr>
               <tr>
                 <td style="border-top:1px solid rgba(255,255,255,0.08);padding:18px 32px;text-align:center;">
-                  <p style="margin:0;color:#4B5563;font-size:11px;">© ${new Date().getFullYear()} SunaSathi · Pātan, Nepal</p>
+                  <p style="margin:0;color:#4B5563;font-size:11px;">© ${new Date().getFullYear()} SunaSathi</p>
                 </td>
               </tr>
             </table>
@@ -59,14 +50,13 @@ const sendOTPEmail = async (toEmail, otp, userName) => {
       </body>
       </html>
     `,
-  };
-  await transporter.sendMail(mailOptions);
+  });
 };
 
 /* PASSWORD RESET EMAIL */
 const sendPasswordResetEmail = async (toEmail, resetUrl, userName) => {
-  const mailOptions = {
-    from:    `"SunaSathi" <${process.env.GMAIL_USER}>`,
+  await resend.emails.send({
+    from:    "SunaSathi <onboarding@resend.dev>",
     to:      toEmail,
     subject: "Reset your SunaSathi password",
     html: `
@@ -99,17 +89,14 @@ const sendPasswordResetEmail = async (toEmail, resetUrl, userName) => {
                       Reset Password
                     </a>
                   </div>
-                  <p style="margin:0 0 6px;color:#6B7280;font-size:12px;">
-                    Or copy this link: <a href="${resetUrl}" style="color:#6366F1;">${resetUrl}</a>
-                  </p>
                   <p style="margin:12px 0 0;color:#6B7280;font-size:12px;">
-                    ⚠️ If you didn't request this, ignore this email. Your password won't change.
+                    ⚠️ If you didn't request this, ignore this email.
                   </p>
                 </td>
               </tr>
               <tr>
                 <td style="border-top:1px solid rgba(255,255,255,0.08);padding:18px 32px;text-align:center;">
-                  <p style="margin:0;color:#4B5563;font-size:11px;">© ${new Date().getFullYear()} SunaSathi · Pātan, Nepal</p>
+                  <p style="margin:0;color:#4B5563;font-size:11px;">© ${new Date().getFullYear()} SunaSathi</p>
                 </td>
               </tr>
             </table>
@@ -118,17 +105,11 @@ const sendPasswordResetEmail = async (toEmail, resetUrl, userName) => {
       </body>
       </html>
     `,
-  };
-  await transporter.sendMail(mailOptions);
+  });
 };
 
-const verifyEmailConnection = async () => {
-  try {
-    await transporter.verify();
-    console.log("Email service ready (Gmail)");
-  } catch (err) {
-    console.error("Email service error:", err.message);
-  }
+const verifyEmailConnection = () => {
+  console.log("Email service ready (Resend)");
 };
 
 module.exports = { sendOTPEmail, sendPasswordResetEmail, verifyEmailConnection };

@@ -1,7 +1,7 @@
 const express = require("express");
 const auth    = require("../middleware/authMiddleware");
 const admin   = require("../middleware/adminMiddleware");
-const { validatePlaylist } = require("../middleware/Validation");
+const { validatePlaylist } = require("../middleware/validation");
 const {
   createPlaylist,
   getMyPlaylists,

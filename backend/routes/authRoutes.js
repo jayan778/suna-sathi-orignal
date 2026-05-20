@@ -6,7 +6,7 @@ const {
   validateRegister,
   validateLogin,
   validateUpdateProfile,
-} = require("../middleware/Validation");
+} = require("../middleware/validation");
 
 // Public
 router.post("/register",   validateRegister, authController.register);

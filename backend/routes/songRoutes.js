@@ -2,7 +2,7 @@ const express              = require("express");
 const auth                 = require("../middleware/authMiddleware");
 const admin                = require("../middleware/adminMiddleware");
 const { uploadAudio, uploadArtistPhoto, uploadSong } = require("../middleware/uploadMiddleware");
-const { validateSong }     = require("../middleware/Validation");
+const { validateSong }     = require("../middleware/validation");
 const {
   addSong,
   updateSong,

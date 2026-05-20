@@ -3,10 +3,11 @@ const path   = require("path");
 const fs     = require("fs");
 
 // Ensure directories exist
-const audioDir  = path.join(__dirname, "../uploads/audio");
-const artistDir = path.join(__dirname, "../uploads/artists");
-const coversDir = path.join(__dirname, "../uploads/covers");
-[audioDir, artistDir, coversDir].forEach((dir) => {
+const audioDir   = path.join(__dirname, "../uploads/audio");
+const artistDir  = path.join(__dirname, "../uploads/artists");
+const coversDir  = path.join(__dirname, "../uploads/covers");
+const avatarsDir = path.join(__dirname, "../uploads/avatars");
+[audioDir, artistDir, coversDir, avatarsDir].forEach((dir) => {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
@@ -90,4 +91,21 @@ const uploadSong = multer({
   limits: { fileSize: 1024 * 1024 * 1024 },
 });
 
-module.exports = { uploadAudio, uploadArtistPhoto, uploadSong };
+// ── User avatar storage ──────────────────────────────────
+const avatarStorage = multer.diskStorage({
+  destination: avatarsDir,
+  filename: (req, file, cb) => {
+    cb(null, `avatar_${Date.now()}_${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`);
+  },
+});
+
+const uploadUserAvatar = multer({
+  storage:    avatarStorage,
+  fileFilter: imageFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5 MB
+    files:    1,
+  },
+});
+
+module.exports = { uploadAudio, uploadArtistPhoto, uploadSong, uploadUserAvatar };

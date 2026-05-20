@@ -3,14 +3,15 @@ import {
   ArrowLeft, Search, Music2, Heart, Plus, Share2,
   Play, Pause, SkipBack, SkipForward, Shuffle, Repeat,
   ListMusic, X, ChevronRight, Volume2, Clock,
-  LayoutGrid, LayoutList, Mic2, ChevronUp, Radio, Library, Trash2, Tag,
+  LayoutGrid, LayoutList, Mic2, ChevronUp, Radio, Library, Trash2, Tag, Pencil, Disc3,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import Sidebar from "../components/Sidebar";
 import ShareModal from "../components/ShareModal";
 import { liveAudio } from "../services/liveAudio";
 import { useAuth } from "../context/AuthContext";
+import { connectSocket } from "../services/socket";
 
 const AUDIOBASE = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/uploads`;
 
@@ -35,7 +36,8 @@ const fetchAudioDuration = (url) =>
   });
 
 export default function Dashboard() {
-  const { likedSongIds, toggleLike } = useAuth();
+  const { user, likedSongIds, toggleLike } = useAuth();
+  const navigate = useNavigate();
 
   // ── Data ───────────────────────────────────────────────
   const [songs,            setSongs]            = useState([]);
@@ -43,7 +45,9 @@ export default function Dashboard() {
   const [songDurations,    setSongDurations]    = useState({});
   const [loadingDurations, setLoadingDurations] = useState(false);
   const [availableGenres,  setAvailableGenres]  = useState(["All Tracks"]);
-  const [artistsData,      setArtistsData]      = useState([]); // artist objects with photos
+  const [artistsData,      setArtistsData]      = useState([]);
+  const [albums,           setAlbums]           = useState([]);
+  const [selectedAlbum,    setSelectedAlbum]    = useState(null); // album object for detail view
 
   // ── View state ─────────────────────────────────────────
   const [mode,             setMode]             = useState("all");
@@ -169,16 +173,18 @@ export default function Dashboard() {
   }, []);
 
   const loadSongs = useCallback(async () => {
-    const [songsRes, genresRes, artistsRes] = await Promise.all([
+    const [songsRes, genresRes, artistsRes, albumsRes] = await Promise.all([
       api.get("/api/songs"),
       api.get("/api/songs/genres"),
       api.get("/api/songs/artists"),
+      api.get("/api/albums").catch(() => ({ data: [] })),
     ]);
     const list = songsRes.data || [];
     setSongs(list);
     loadDurations(list);
     setAvailableGenres(["All Tracks", ...(genresRes.data || [])]);
     setArtistsData(artistsRes.data || []);
+    setAlbums(albumsRes.data || []);
   }, [loadDurations]);
 
   const refreshPlaylists = useCallback(async () => {
@@ -211,6 +217,16 @@ export default function Dashboard() {
   useEffect(() => {
     Promise.all([loadSongs(), refreshPlaylists()]);
   }, []);
+
+  // Reload songs when admin updates one so cover/metadata stays fresh
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    const socket = connectSocket(token);
+    const handler = () => loadSongs();
+    socket.on("song_updated", handler);
+    return () => { socket.off("song_updated", handler); };
+  }, [loadSongs]);
 
   // ── Derived state ──────────────────────────────────────
   const queue = useMemo(() => {
@@ -486,15 +502,18 @@ export default function Dashboard() {
           playlists={playlists}
           activeMode={view === "library" ? "library" : mode}
           activePlaylistId={selectedPlaylist?.id || null}
-          onHome={() => { setMode("all"); setSelectedPlaylist(null); setView("list"); }}
-          onLibrary={() => { setMode("all"); setSelectedPlaylist(null); setView("library"); }}
+          albumCount={albums.length}
+          onHome={() => { setMode("all"); setSelectedPlaylist(null); setView("list"); setSelectedAlbum(null); }}
+          onLibrary={() => { setMode("all"); setSelectedPlaylist(null); setView("library"); setSelectedAlbum(null); }}
           onSelectPlaylist={(p) => {
             const n = normalizePlaylist(p);
             setMode("playlist");
             setSelectedPlaylist(n);
             setView("list");
+            setSelectedAlbum(null);
           }}
-          onSelectLiked={() => { setMode("liked"); setSelectedPlaylist(null); setView("list"); }}
+          onSelectLiked={() => { setMode("liked"); setSelectedPlaylist(null); setView("list"); setSelectedAlbum(null); }}
+          onSelectAlbums={() => { setMode("albums"); setSelectedPlaylist(null); setView("list"); setSelectedAlbum(null); }}
           onPlaylistsChanged={refreshPlaylists}
           onDeletePlaylist={deletePlaylist}
         />
@@ -508,6 +527,111 @@ export default function Dashboard() {
           {view === "list" && (
             <div className="flex-1 overflow-y-auto px-4 sm:px-6 md:px-8 py-6 space-y-6">
               <div className="max-w-7xl mx-auto space-y-6">
+
+                {/* ── Albums view ── */}
+                {mode === "albums" && !selectedAlbum && (
+                  <div>
+                    <h1 className="text-2xl font-bold mb-6">Albums</h1>
+                    {albums.length === 0 ? (
+                      <div className="text-center py-16">
+                        <Disc3 className="w-16 h-16 mx-auto text-gray-700 mb-4" />
+                        <p className="text-gray-500">No albums yet</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                        {albums.map((album) => (
+                          <button
+                            key={album._id}
+                            onClick={() => setSelectedAlbum(album)}
+                            className="group flex flex-col bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 hover:border-purple-500/30 transition-all overflow-hidden text-left"
+                          >
+                            <div className="aspect-square bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center overflow-hidden">
+                              {album.cover ? (
+                                <img src={`${AUDIOBASE}/${album.cover}`} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                              ) : (
+                                <Disc3 className="w-10 h-10 text-purple-400/50" />
+                              )}
+                            </div>
+                            <div className="p-3">
+                              <p className="font-semibold text-white text-sm truncate">{album.name}</p>
+                              <p className="text-xs text-gray-400 truncate">{album.artist}</p>
+                              <p className="text-xs text-gray-600 mt-0.5">{album.year}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Album detail view ── */}
+                {mode === "albums" && selectedAlbum && (() => {
+                  const albumSongs = songs.filter((s) => {
+                    const aid = s.albumId?._id || s.albumId;
+                    return aid && String(aid) === String(selectedAlbum._id);
+                  });
+                  return (
+                    <div>
+                      <button
+                        onClick={() => setSelectedAlbum(null)}
+                        className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors mb-6"
+                      >
+                        ← Back to Albums
+                      </button>
+                      {/* Album header */}
+                      <div className="flex items-end gap-6 mb-8">
+                        <div className="w-40 h-40 rounded-2xl overflow-hidden bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center flex-shrink-0 shadow-2xl">
+                          {selectedAlbum.cover ? (
+                            <img src={`${AUDIOBASE}/${selectedAlbum.cover}`} alt={selectedAlbum.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <Disc3 className="w-16 h-16 text-purple-400/50" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">Album</p>
+                          <h1 className="text-3xl font-bold text-white mb-1">{selectedAlbum.name}</h1>
+                          <p className="text-gray-400">{selectedAlbum.artist} · {selectedAlbum.year} · {albumSongs.length} songs</p>
+                        </div>
+                      </div>
+                      {/* Songs in album */}
+                      {albumSongs.length === 0 ? (
+                        <p className="text-gray-500 text-center py-8">No songs in this album yet. Assign songs via the admin Add Music page.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {albumSongs.map((song, idx) => {
+                            const isActive = currentSong?._id === song._id;
+                            const cover = song.cover || song.albumId?.cover || selectedAlbum.cover;
+                            return (
+                              <button
+                                key={song._id}
+                                onClick={() => handlePlay(song, albumSongs)}
+                                className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all text-left group ${isActive ? "bg-purple-500/10 border border-purple-500/20" : "hover:bg-white/5"}`}
+                              >
+                                <span className={`w-6 text-center text-sm flex-shrink-0 ${isActive ? "text-purple-400" : "text-gray-600 group-hover:text-white"}`}>
+                                  {isActive && isPlaying ? (
+                                    <span className="flex items-end justify-center gap-px h-4">
+                                      {[2,3,2].map((h,i) => <span key={i} className="w-0.5 bg-purple-400 rounded-full animate-pulse" style={{height:`${h*4}px`}} />)}
+                                    </span>
+                                  ) : idx + 1}
+                                </span>
+                                <div className="w-10 h-10 rounded-lg overflow-hidden bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center flex-shrink-0">
+                                  {cover ? <img src={`${AUDIOBASE}/${cover}`} alt={song.name} className="w-full h-full object-cover" /> : <Music2 className="w-4 h-4 text-purple-400/50" />}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className={`font-medium text-sm truncate ${isActive ? "text-purple-300" : "text-white"}`}>{song.name}</p>
+                                  <p className="text-xs text-gray-400 truncate">{song.artist}</p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* ── Regular song list (hidden when albums view active) ── */}
+                {mode !== "albums" && <>
 
                 {/* Header */}
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
@@ -807,6 +931,7 @@ export default function Dashboard() {
                     })}
                   </div>
                 )}
+                </>}
               </div>
             </div>
           )}
@@ -1072,16 +1197,10 @@ export default function Dashboard() {
 
                     {/* Album art */}
                     <div className="relative aspect-square max-w-xs mx-auto mb-6 rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500/20 via-purple-500/20 to-pink-500/20 flex items-center justify-center">
-                      {currentSong?.cover ? (
+                      {(currentSong?.cover || currentSong?.albumId?.cover) ? (
                         <img
-                          src={`${AUDIOBASE}/${currentSong.cover}`}
+                          src={`${AUDIOBASE}/${currentSong.cover || currentSong.albumId.cover}`}
                           alt={currentSong.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : currentSong && getArtistPhoto(currentSong.artist) ? (
-                        <img
-                          src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
-                          alt={currentSong.artist}
                           className="w-full h-full object-cover"
                         />
                       ) : (
@@ -1266,11 +1385,20 @@ export default function Dashboard() {
 
                     {currentSong?.artist && (
                       <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-5">
-                        <h3 className="font-semibold text-white text-sm mb-3">Artist</h3>
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="font-semibold text-white text-sm">Artist</h3>
+                          {user?.role === "admin" && (
+                            <button
+                              onClick={() => navigate("/admin/add-music")}
+                              className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                            >
+                              <Pencil className="w-3 h-3" />Edit
+                            </button>
+                          )}
+                        </div>
                         <div
                           onClick={() => { setSearchQuery(currentSong.artist); setView("list"); }}
                           className="flex items-center gap-3 cursor-pointer hover:bg-white/5 rounded-xl p-2 -m-2 transition-colors">
-                          {/* Artist photo in player right panel */}
                           {getArtistPhoto(currentSong.artist) ? (
                             <img
                               src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
@@ -1359,18 +1487,12 @@ export default function Dashboard() {
 
               <div className="flex items-center gap-3 px-4 sm:px-6 py-3">
 
-                {/* Thumbnail — prefer cover art, fall back to artist photo */}
+                {/* Thumbnail — song cover or album cover */}
                 <div className="w-12 h-12 rounded-xl overflow-hidden flex-shrink-0 border border-white/10">
-                  {currentSong.cover ? (
+                  {(currentSong.cover || currentSong?.albumId?.cover) ? (
                     <img
-                      src={`${AUDIOBASE}/${currentSong.cover}`}
+                      src={`${AUDIOBASE}/${currentSong.cover || currentSong.albumId.cover}`}
                       alt={currentSong.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : getArtistPhoto(currentSong.artist) ? (
-                    <img
-                      src={`${AUDIOBASE}/${getArtistPhoto(currentSong.artist)}`}
-                      alt={currentSong.artist}
                       className="w-full h-full object-cover"
                     />
                   ) : (
@@ -1498,7 +1620,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-xs text-gray-500 mb-4">Stop playback after</p>
                 <div className="space-y-2">
-                  {[5, 10, 15, 30, 45, 60].map((m) => (
+                  {[1, 2, 3, 4, 5, 10, 20, 30, 40, 50, 60].map((m) => (
                     <button key={m} onClick={() => startTimerMinutes(m)}
                       className="w-full px-4 py-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all border border-white/10 hover:border-indigo-500/50 text-white text-sm font-medium">
                       {m} minutes

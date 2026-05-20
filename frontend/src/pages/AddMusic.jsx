@@ -3,8 +3,10 @@ import api from "../services/api";
 import {
   Upload, Music2, Trash2, Plus, Search,
   AlertTriangle, Info, Radio, User, X, Check,
-  ChevronDown, Camera, LayoutList,
+  ChevronDown, Camera, LayoutList, Pencil, Disc3,
 } from "lucide-react";
+import EditSongModal from "../components/EditSongModal";
+import AlbumManager from "../components/AlbumManager";
 
 const AUDIOBASE = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/uploads`;
 const MAX_AUDIO_SIZE = 1024 * 1024 * 1024; // 1 GB
@@ -33,11 +35,35 @@ export default function AddMusic() {
   const [coverPreview, setCoverPreview] = useState(null);
   const coverInputRef = useRef(null);
 
+  const [albums,          setAlbums]          = useState([]);
+  const [editSong,        setEditSong]        = useState(null);
+
+  const [albumsVersion, setAlbumsVersion] = useState(0);
+
+  // Quick album create modal
+  const [showAlbumModal,    setShowAlbumModal]    = useState(false);
+  const [newAlbum,          setNewAlbum]          = useState({ name: "", artist: "", year: String(new Date().getFullYear()) });
+  const [newAlbumCover,     setNewAlbumCover]     = useState(null);
+  const [newAlbumCoverPrev, setNewAlbumCoverPrev] = useState(null);
+  const [albumModalLoading, setAlbumModalLoading] = useState(false);
+  const [albumModalError,   setAlbumModalError]   = useState("");
+  const newAlbumCoverRef = useRef(null);
+
+  // Edit artist modal
+  const [editArtist,        setEditArtist]        = useState(null);
+  const [editArtistForm,    setEditArtistForm]    = useState({ name: "", bio: "", genre: "" });
+  const [editArtistPhoto,   setEditArtistPhoto]   = useState(null);
+  const [editArtistPreview, setEditArtistPreview] = useState(null);
+  const [editArtistRemove,  setEditArtistRemove]  = useState(false);
+  const [editArtistLoading, setEditArtistLoading] = useState(false);
+  const [editArtistError,   setEditArtistError]   = useState("");
+  const editArtistPhotoRef = useRef(null);
+
   const [availableGenres, setAvailableGenres] = useState([]);
   const [customGenre,     setCustomGenre]     = useState(false);
 
   const [form, setForm] = useState({
-    name: "", artistId: "", artistName: "",
+    name: "", artistId: "", artistName: "", albumId: "",
     genre: "", year: "", isLiveOnly: false, audio: null, cover: null,
   });
 
@@ -46,12 +72,14 @@ export default function AddMusic() {
   const loadSongs   = async () => { const r = await api.get("/api/songs/all");     setSongs(r.data); };
   const loadArtists = async () => { const r = await api.get("/api/songs/artists"); setArtists(r.data); };
   const loadGenres  = async () => { const r = await api.get("/api/songs/genres");  setAvailableGenres(r.data || []); };
+  const loadAlbums  = async () => { const r = await api.get("/api/albums");        setAlbums(r.data || []); };
 
   useEffect(() => {
     Promise.all([
       loadSongs().catch(() => setError("Failed to load songs")),
       loadArtists().catch(console.error),
       loadGenres().catch(console.error),
+      loadAlbums().catch(console.error),
     ]);
   }, []);
 
@@ -76,6 +104,53 @@ export default function AddMusic() {
     if (val === "__new__") { setShowArtistModal(true); return; }
     const found = artists.find((a) => a._id === val);
     setForm((p) => ({ ...p, artistId: val, artistName: found?.name || "" }));
+  };
+
+  const handleAlbumSelect = (e) => {
+    const val = e.target.value;
+    if (val === "__new_album__") {
+      setNewAlbum({ name: "", artist: form.artistName || "", year: String(new Date().getFullYear()) });
+      setNewAlbumCover(null);
+      setNewAlbumCoverPrev(null);
+      setAlbumModalError("");
+      setShowAlbumModal(true);
+      return;
+    }
+    setForm((p) => ({ ...p, albumId: val }));
+  };
+
+  const handleCreateAlbum = async () => {
+    if (!newAlbum.name.trim() || !newAlbum.artist.trim()) {
+      setAlbumModalError("Album name and artist are required");
+      return;
+    }
+    setAlbumModalLoading(true);
+    setAlbumModalError("");
+    try {
+      const data = new FormData();
+      data.append("name",     newAlbum.name.trim());
+      data.append("artist",   newAlbum.artist.trim());
+      data.append("year",     newAlbum.year);
+      if (form.artistId) data.append("artistId", form.artistId);
+      if (newAlbumCover) data.append("cover", newAlbumCover);
+
+      const res = await api.post("/api/albums", data, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      await loadAlbums();
+      setAlbumsVersion((v) => v + 1);
+      setForm((p) => ({ ...p, albumId: res.data._id }));
+      setNewAlbum({ name: "", artist: "", year: String(new Date().getFullYear()) });
+      setNewAlbumCover(null);
+      setNewAlbumCoverPrev(null);
+      setShowAlbumModal(false);
+      setSuccess("Album created!");
+      setTimeout(() => setSuccess(""), 3000);
+    } catch (err) {
+      setAlbumModalError(err?.response?.data?.message || "Failed to create album");
+    } finally {
+      setAlbumModalLoading(false);
+    }
   };
 
   const handleCreateArtist = async () => {
@@ -142,6 +217,7 @@ export default function AddMusic() {
       data.append("name",       form.name);
       data.append("artist",     form.artistName);
       data.append("artistId",   form.artistId);
+      data.append("albumId",    form.albumId || "");
       data.append("genre",      form.genre);
       data.append("year",       form.year);
       data.append("isLiveOnly", form.isLiveOnly);
@@ -152,7 +228,7 @@ export default function AddMusic() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      setForm({ name: "", artistId: "", artistName: "", genre: "", year: "", isLiveOnly: false, audio: null, cover: null });
+      setForm({ name: "", artistId: "", artistName: "", albumId: "", genre: "", year: "", isLiveOnly: false, audio: null, cover: null });
       setCoverPreview(null);
       setCustomGenre(false);
       setFileWarning("");
@@ -174,6 +250,52 @@ export default function AddMusic() {
       setSongs((prev) => prev.filter((s) => (s._id || s.id) !== id));
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to delete song");
+    }
+  };
+
+  const handleEditSave = async () => {
+    setEditSong(null);
+    setSuccess("Song updated successfully!");
+    setTimeout(() => setSuccess(""), 3000);
+    await Promise.all([loadSongs(), loadGenres()]);
+  };
+
+  const openEditArtist = (artist) => {
+    setEditArtist(artist);
+    setEditArtistForm({ name: artist.name || "", bio: artist.bio || "", genre: artist.genre || "" });
+    setEditArtistPhoto(null);
+    setEditArtistPreview(null);
+    setEditArtistRemove(false);
+    setEditArtistError("");
+  };
+
+  const handleEditArtistSubmit = async (e) => {
+    e.preventDefault();
+    if (!editArtistForm.name.trim()) { setEditArtistError("Artist name is required"); return; }
+    setEditArtistLoading(true);
+    setEditArtistError("");
+    try {
+      const data = new FormData();
+      data.append("name",        editArtistForm.name.trim());
+      data.append("bio",         editArtistForm.bio.trim());
+      data.append("genre",       editArtistForm.genre.trim());
+      data.append("removePhoto", String(editArtistRemove && !editArtistPhoto));
+      if (editArtistPhoto) data.append("photo", editArtistPhoto);
+
+      const res = await api.put(`/api/songs/artists/${editArtist._id}`, data, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      // Close modal and show success immediately — refresh in background
+      setEditArtist(null);
+      setSuccess("Artist updated successfully!");
+      setTimeout(() => setSuccess(""), 3000);
+      loadArtists().catch(console.error);
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || "Failed to update artist";
+      setEditArtistError(msg);
+    } finally {
+      setEditArtistLoading(false);
     }
   };
 
@@ -318,6 +440,36 @@ export default function AddMusic() {
                   required placeholder="2024" min="1900" max={new Date().getFullYear() + 1}
                   className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all" />
               </div>
+            </div>
+
+            {/* Album selector */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                <Disc3 className="w-4 h-4 text-purple-400" /> Album
+                <span className="text-gray-500 font-normal">(optional)</span>
+              </label>
+              <div className="relative">
+                <select
+                  value={form.albumId || ""}
+                  onChange={handleAlbumSelect}
+                  className="w-full appearance-none px-4 py-3 pr-10 bg-[#0B0F1A] border border-white/10 rounded-xl text-white focus:outline-none focus:border-purple-500/50 transition-all cursor-pointer"
+                >
+                  <option value="">— No album —</option>
+                  {albums.map((a) => (
+                    <option key={a._id} value={a._id}>{a.name} · {a.artist}</option>
+                  ))}
+                  <option value="__new_album__">➕ Create New Album</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+              </div>
+              {form.albumId && albums.find((a) => a._id === form.albumId) && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                  <Check className="w-4 h-4 text-purple-400" />
+                  <span className="text-sm text-purple-300">
+                    Album: <strong>{albums.find((a) => a._id === form.albumId)?.name}</strong>
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Live Only toggle — redesigned with clear consequence text */}
@@ -570,16 +722,28 @@ export default function AddMusic() {
                       }
                     </p>
                   </div>
-                  <button onClick={() => deleteSong(id)}
-                    className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all opacity-0 group-hover:opacity-100"
-                    title="Delete song">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    <button onClick={() => setEditSong(song)}
+                      className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all"
+                      title="Edit song">
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deleteSong(id)}
+                      className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all"
+                      title="Delete song">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
           </div>
         </div>
+      </div>
+
+      {/* Albums Panel */}
+      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8">
+        <AlbumManager artists={artists} onAlbumsChange={setAlbums} reloadTrigger={albumsVersion} />
       </div>
 
       {/* Artists Panel */}
@@ -601,26 +765,249 @@ export default function AddMusic() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {artists.map((a) => (
               <div key={a._id}
-                className="flex flex-col items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/10 hover:border-indigo-500/30 transition-all text-center">
-                {a.photo ? (
-                  <img
-                    src={`${AUDIOBASE}/${a.photo}`}
-                    alt={a.name}
-                    className="w-14 h-14 rounded-full object-cover border-2 border-indigo-500/30"
-                  />
-                ) : (
-                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 flex items-center justify-center text-2xl font-bold text-indigo-300">
-                    {a.name[0]?.toUpperCase()}
+                className="relative flex flex-col items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/10 hover:border-indigo-500/30 transition-all text-center">
+
+                {/* Clickable photo — opens edit modal */}
+                <button
+                  onClick={() => openEditArtist(a)}
+                  className="relative group/photo"
+                  title="Edit artist"
+                >
+                  {a.photo ? (
+                    <img src={`${AUDIOBASE}/${a.photo}`} alt={a.name}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-indigo-500/30 group-hover/photo:opacity-70 transition-opacity" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border-2 border-dashed border-indigo-500/40 flex items-center justify-center text-2xl font-bold text-indigo-300 group-hover/photo:border-indigo-400 transition-all">
+                      {a.name[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 rounded-full flex items-center justify-center opacity-0 group-hover/photo:opacity-100 transition-opacity">
+                    <Camera className="w-5 h-5 text-white drop-shadow" />
                   </div>
-                )}
+                </button>
+
                 <p className="text-sm font-medium text-white truncate w-full">{a.name}</p>
                 {a.genre && <p className="text-xs text-gray-500 truncate w-full">{a.genre}</p>}
                 <p className="text-xs text-gray-600">{a.songCount || 0} songs</p>
+
+                {/* Always-visible edit button */}
+                <button
+                  onClick={() => openEditArtist(a)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all text-xs"
+                >
+                  <Pencil className="w-3 h-3" />Edit
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {editSong && (
+        <EditSongModal
+          song={editSong}
+          artists={artists}
+          albums={albums}
+          availableGenres={availableGenres}
+          onSave={handleEditSave}
+          onClose={() => setEditSong(null)}
+        />
+      )}
+
+      {/* Edit Artist Modal */}
+      {editArtist && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0d1120] rounded-2xl p-6 w-full max-w-md border border-white/10 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <Pencil className="w-5 h-5 text-indigo-400" />
+                <h2 className="text-xl font-bold text-white">Edit Artist</h2>
+              </div>
+              <button onClick={() => setEditArtist(null)} className="p-2 hover:bg-white/10 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditArtistSubmit} className="space-y-4">
+              {/* Photo */}
+              <div className="flex flex-col items-center gap-3">
+                <div
+                  onClick={() => editArtistPhotoRef.current?.click()}
+                  className="relative w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border-2 border-dashed border-indigo-500/30 flex items-center justify-center cursor-pointer hover:border-indigo-500/60 transition-all overflow-hidden group">
+                  {editArtistPreview ? (
+                    <img src={editArtistPreview} alt="preview" className="w-full h-full object-cover" />
+                  ) : editArtist.photo && !editArtistRemove ? (
+                    <img src={`${AUDIOBASE}/${editArtist.photo}`} alt={editArtist.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Camera className="w-8 h-8 text-indigo-400 group-hover:scale-110 transition-transform" />
+                  )}
+                </div>
+                <input ref={editArtistPhotoRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setEditArtistPhoto(file);
+                    setEditArtistPreview(file ? URL.createObjectURL(file) : null);
+                    if (file) setEditArtistRemove(false);
+                  }} />
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => editArtistPhotoRef.current?.click()}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-colors">
+                    Change Photo
+                  </button>
+                  {(editArtist.photo || editArtistPreview) && !editArtistRemove && (
+                    <button type="button"
+                      onClick={() => { setEditArtistPhoto(null); setEditArtistPreview(null); setEditArtistRemove(true); if (editArtistPhotoRef.current) editArtistPhotoRef.current.value = ""; }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
+                      Remove Photo
+                    </button>
+                  )}
+                  {editArtistRemove && !editArtistPreview && (
+                    <button type="button" onClick={() => setEditArtistRemove(false)}
+                      className="text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+                      ↩ Keep photo
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">Artist Name *</label>
+                <input value={editArtistForm.name} onChange={(e) => setEditArtistForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Arijit Singh" required
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">Genre</label>
+                <input value={editArtistForm.genre} onChange={(e) => setEditArtistForm((p) => ({ ...p, genre: e.target.value }))}
+                  placeholder="e.g. Bollywood, Pop"
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">Bio</label>
+                <textarea value={editArtistForm.bio} onChange={(e) => setEditArtistForm((p) => ({ ...p, bio: e.target.value }))}
+                  placeholder="Short artist description..." rows={3}
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all resize-none" />
+              </div>
+
+              {editArtistError && (
+                <div className="px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-300 text-sm">
+                  {editArtistError}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setEditArtist(null)}
+                  className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition-all">
+                  Cancel
+                </button>
+                <button type="submit" disabled={editArtistLoading}
+                  className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold shadow-lg shadow-indigo-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                  {editArtistLoading
+                    ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Quick Create Album Modal */}
+      {showAlbumModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0d1120] rounded-2xl p-6 w-full max-w-md border border-white/10 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <Disc3 className="w-5 h-5 text-purple-400" />
+                <h2 className="text-xl font-bold text-white">Create New Album</h2>
+              </div>
+              <button
+                onClick={() => { setShowAlbumModal(false); setAlbumModalError(""); }}
+                className="p-2 hover:bg-white/10 rounded-xl transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            {albumModalError && (
+              <div className="mb-4 px-4 py-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-300 text-sm">
+                {albumModalError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {/* Cover */}
+              <div className="flex flex-col items-center gap-3">
+                <div
+                  onClick={() => newAlbumCoverRef.current?.click()}
+                  className="relative w-28 h-28 rounded-xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 border-2 border-dashed border-purple-500/30 flex items-center justify-center cursor-pointer hover:border-purple-500/60 transition-all overflow-hidden group">
+                  {newAlbumCoverPrev ? (
+                    <img src={newAlbumCoverPrev} alt="preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="flex flex-col items-center gap-1">
+                      <Camera className="w-7 h-7 text-purple-400 group-hover:scale-110 transition-transform" />
+                      <span className="text-xs text-purple-400">Cover (optional)</span>
+                    </div>
+                  )}
+                </div>
+                <input ref={newAlbumCoverRef} type="file" accept="image/*" className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setNewAlbumCover(file);
+                    setNewAlbumCoverPrev(file ? URL.createObjectURL(file) : null);
+                  }} />
+                {newAlbumCoverPrev && (
+                  <button type="button"
+                    onClick={() => { setNewAlbumCover(null); setNewAlbumCoverPrev(null); if (newAlbumCoverRef.current) newAlbumCoverRef.current.value = ""; }}
+                    className="text-xs px-3 py-1 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors">
+                    Remove Cover
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">Album Name *</label>
+                <input
+                  value={newAlbum.name}
+                  onChange={(e) => setNewAlbum((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Greatest Hits" autoFocus
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">Artist *</label>
+                <input
+                  value={newAlbum.artist}
+                  onChange={(e) => setNewAlbum((p) => ({ ...p, artist: e.target.value }))}
+                  placeholder="e.g. Arijit Singh"
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-300 mb-2 block">Release Year</label>
+                <input
+                  type="number" value={newAlbum.year}
+                  onChange={(e) => setNewAlbum((p) => ({ ...p, year: e.target.value }))}
+                  placeholder="2024" min="1900" max={new Date().getFullYear() + 1}
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all" />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => { setShowAlbumModal(false); setAlbumModalError(""); }}
+                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition-all">
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateAlbum}
+                disabled={albumModalLoading || !newAlbum.name.trim() || !newAlbum.artist.trim()}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold shadow-lg shadow-purple-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                {albumModalLoading
+                  ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <><Plus className="w-4 h-4" />Create Album</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New Artist Modal */}
       {showArtistModal && (

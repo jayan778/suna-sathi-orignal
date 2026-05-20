@@ -10,6 +10,7 @@ const songSchema = new mongoose.Schema(
     file:       { type: String,  required: true },
     cover:      { type: String,  default: "" },
     duration:   { type: Number,  default: 0 },
+    albumId:    { type: mongoose.Schema.Types.ObjectId, ref: "Album",  default: null },
     isLiveOnly: { type: Boolean, default: false },
     createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },

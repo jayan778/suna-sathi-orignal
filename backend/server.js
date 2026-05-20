@@ -6,6 +6,7 @@ const connectDB      = require("./config/db");
 const { verifyEmailConnection } = require("./services/emailService");
 const setupSocket    = require("./socket");
 const radioScheduler = require("./services/radioScheduler");
+const { setIO }      = require("./socketInstance");
 
 const PORT = process.env.PORT || 5000;
 
@@ -22,7 +23,8 @@ const start = async () => {
 
     // Create HTTP server + attach Socket.io
     const httpServer = http.createServer(app);
-    setupSocket(httpServer);
+    const io = setupSocket(httpServer);
+    setIO(io);
 
     httpServer.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

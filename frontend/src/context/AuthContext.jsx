@@ -64,6 +64,14 @@ export const AuthProvider = ({ children }) => {
     return res.data;
   };
 
+  const updateProfilePhoto = async (formData) => {
+    const res = await api.put("/api/auth/me/photo", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    setUser(res.data);
+    return res.data;
+  };
+
   const toggleLike = async (songId) => {
     // Optimistic update
     setLikedSongIds((prev) =>
@@ -86,7 +94,7 @@ export const AuthProvider = ({ children }) => {
   const value = useMemo(
     () => ({
       user, booting, login, logout,
-      updateProfile, refreshMe: fetchMe,
+      updateProfile, updateProfilePhoto, refreshMe: fetchMe,
       likedSongIds, toggleLike,
     }),
     [user, booting, likedSongIds]

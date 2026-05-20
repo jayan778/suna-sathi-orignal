@@ -1,6 +1,8 @@
 const jwt    = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+const path   = require("path");
+const fs     = require("fs").promises;
 
 const User            = require("../models/User");
 const OTP             = require("../models/OTP");
@@ -274,6 +276,40 @@ exports.updateMe = async (req, res) => {
   } catch (err) {
     console.error("Update me error:", err);
     return res.status(500).json({ message: "Failed to update profile" });
+  }
+};
+
+// ── PUT /api/auth/me/photo ───────────────────────────────
+exports.updateMyPhoto = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (req.body.removePhoto === "true") {
+      if (user.photo) {
+        const oldPath = path.join(__dirname, "../uploads", user.photo);
+        try { await fs.unlink(oldPath); } catch {}
+      }
+      user.photo = "";
+    } else if (req.file) {
+      if (user.photo) {
+        const oldPath = path.join(__dirname, "../uploads", user.photo);
+        try { await fs.unlink(oldPath); } catch {}
+      }
+      user.photo = `avatars/${req.file.filename}`;
+    } else {
+      return res.status(400).json({ message: "No image uploaded" });
+    }
+
+    await user.save();
+    const updated = await User.findById(user._id).select("-password -resetPasswordToken -resetPasswordExpires");
+    return res.json(updated);
+  } catch (err) {
+    console.error("Update photo error:", err);
+    return res.status(500).json({ message: "Failed to update photo" });
   }
 };
 

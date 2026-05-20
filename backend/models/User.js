@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema(
     resetPasswordExpires: { type: Date,   default: null },
     likedSongs: [{ type: mongoose.Schema.Types.ObjectId, ref: "Song" }],
 
+    photo: { type: String, default: "" },
+
     // Failed login tracking
     loginAttempts: { type: Number, default: 0 },
     lockUntil:     { type: Date,   default: null },

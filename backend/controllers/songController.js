@@ -1,8 +1,10 @@
 const Song           = require("../models/Song");
 const Artist         = require("../models/Artist");
+const Album          = require("../models/Album");
 const fs             = require("fs").promises;
 const path           = require("path");
 const radioScheduler = require("../services/radioScheduler");
+const { getIO }      = require("../socketInstance");
 const { execFile }   = require("child_process");
 const util           = require("util");
 const execFileAsync  = util.promisify(execFile);
@@ -84,6 +86,37 @@ exports.createArtist = async (req, res) => {
   }
 };
 
+/* UPDATE ARTIST (name, bio, genre, photo) */
+exports.updateArtist = async (req, res) => {
+  try {
+    const artist = await Artist.findById(req.params.id);
+    if (!artist) return res.status(404).json({ message: "Artist not found" });
+
+    const { name, bio, genre, removePhoto } = req.body;
+    if (name?.trim())      artist.name  = name.trim();
+    if (bio  !== undefined) artist.bio  = bio.trim();
+    if (genre !== undefined) artist.genre = genre.trim();
+
+    if (req.file) {
+      if (artist.photo) {
+        const old = path.join(__dirname, "../uploads", artist.photo);
+        try { await fs.unlink(old); } catch {}
+      }
+      artist.photo = `artists/${req.file.filename}`;
+    } else if (removePhoto === "true" && artist.photo) {
+      const old = path.join(__dirname, "../uploads", artist.photo);
+      try { await fs.unlink(old); } catch {}
+      artist.photo = "";
+    }
+
+    await artist.save();
+    res.json(artist);
+  } catch (err) {
+    console.error("Update artist error:", err);
+    res.status(500).json({ message: "Failed to update artist" });
+  }
+};
+
 /* UPDATE ARTIST PHOTO */
 exports.updateArtistPhoto = async (req, res) => {
   try {
@@ -107,7 +140,7 @@ exports.updateArtistPhoto = async (req, res) => {
 /* ADD SONG (ADMIN) */
 exports.addSong = async (req, res) => {
   try {
-    const { name, artist, artistId, genre, year, isLiveOnly } = req.body;
+    const { name, artist, artistId, genre, year, isLiveOnly, albumId } = req.body;
     const audioFile = req.files?.audio?.[0];
     const coverFile = req.files?.cover?.[0];
 
@@ -131,10 +164,16 @@ exports.addSong = async (req, res) => {
       console.log(`✅ Song "${name}" duration: ${duration.toFixed(1)}s (${(duration/60).toFixed(2)} min)`);
     }
 
+    let resolvedAlbumId = null;
+    if (albumId) {
+      try { const a = await Album.findById(albumId); if (a) resolvedAlbumId = a._id; } catch {}
+    }
+
     const song = await Song.create({
       name,
       artist,
       artistId:   resolvedArtistId,
+      albumId:    resolvedAlbumId,
       genre,
       year,
       file:       `audio/${audioFile.filename}`,
@@ -171,7 +210,7 @@ exports.getSongs = async (req, res) => {
       query.genre = { $regex: new RegExp(`^${genre}$`, "i") };
     }
 
-    const songs = await Song.find(query).sort({ createdAt: -1 });
+    const songs = await Song.find(query).populate("albumId", "name cover year artist").sort({ createdAt: -1 });
     res.json(songs);
   } catch {
     res.status(500).json({ message: "Failed to fetch songs" });
@@ -210,7 +249,7 @@ exports.getAllSongs = async (req, res) => {
       query.genre = { $regex: new RegExp(`^${genre}$`, "i") };
     }
 
-    const songs = await Song.find(query).sort({ createdAt: -1 });
+    const songs = await Song.find(query).populate("albumId", "name cover year artist").sort({ createdAt: -1 });
     res.json(songs);
   } catch {
     res.status(500).json({ message: "Failed to fetch songs" });
@@ -224,10 +263,83 @@ exports.getSongsByArtist = async (req, res) => {
     const songs = await Song.find({
       artistId,
       isLiveOnly: { $ne: true },
-    }).sort({ createdAt: -1 });
+    }).populate("albumId", "name cover year artist").sort({ createdAt: -1 });
     res.json(songs);
   } catch {
     res.status(500).json({ message: "Failed to fetch artist songs" });
+  }
+};
+
+/* UPDATE SONG (ADMIN) */
+exports.updateSong = async (req, res) => {
+  try {
+    const song = await Song.findById(req.params.id);
+    if (!song) return res.status(404).json({ message: "Song not found" });
+
+    const { name, artist, artistId, albumId, genre, year, isLiveOnly, removeCover } = req.body;
+    const audioFile = req.files?.audio?.[0];
+    const coverFile = req.files?.cover?.[0];
+    const uploadsDir = path.resolve(__dirname, "../uploads");
+
+    if (name)   song.name   = name.trim();
+    if (artist) song.artist = artist.trim();
+    if (genre)  song.genre  = genre.trim();
+    if (year)   song.year   = year;
+    if (isLiveOnly !== undefined) song.isLiveOnly = isLiveOnly === "true" || isLiveOnly === true;
+
+    if (artistId !== undefined) {
+      if (artistId) {
+        try {
+          const found = await Artist.findById(artistId);
+          song.artistId = found ? found._id : null;
+        } catch {
+          song.artistId = null;
+        }
+      } else {
+        song.artistId = null;
+      }
+    }
+
+    if (albumId !== undefined) {
+      if (albumId) {
+        try {
+          const found = await Album.findById(albumId);
+          song.albumId = found ? found._id : null;
+        } catch {
+          song.albumId = null;
+        }
+      } else {
+        song.albumId = null;
+      }
+    }
+
+    if (audioFile) {
+      const oldAudioPath = path.resolve(path.join(uploadsDir, "audio", path.basename(song.file)));
+      if (oldAudioPath.startsWith(uploadsDir)) { try { await fs.unlink(oldAudioPath); } catch {} }
+      song.file = `audio/${audioFile.filename}`;
+      song.duration = await extractDuration(path.join(__dirname, "../uploads/audio", audioFile.filename));
+    }
+
+    if (coverFile) {
+      if (song.cover) {
+        const oldCoverPath = path.resolve(path.join(uploadsDir, "covers", path.basename(song.cover)));
+        if (oldCoverPath.startsWith(uploadsDir)) { try { await fs.unlink(oldCoverPath); } catch {} }
+      }
+      song.cover = `covers/${coverFile.filename}`;
+    } else if (removeCover === "true" && song.cover) {
+      const oldCoverPath = path.resolve(path.join(uploadsDir, "covers", path.basename(song.cover)));
+      if (oldCoverPath.startsWith(uploadsDir)) { try { await fs.unlink(oldCoverPath); } catch {} }
+      song.cover = "";
+    }
+
+    await song.save();
+    radioScheduler.reload().catch(console.error);
+    const io = getIO();
+    if (io) io.emit("song_updated", song.toObject());
+    res.json(song);
+  } catch (error) {
+    console.error("Update song error:", error);
+    res.status(500).json({ message: "Failed to update song" });
   }
 };
 

@@ -1,6 +1,7 @@
 const router         = require("express").Router();
 const authController = require("../controllers/authController");
 const authMiddleware = require("../middleware/authMiddleware");
+const { uploadUserAvatar } = require("../middleware/uploadMiddleware");
 const {
   validateRegister,
   validateLogin,
@@ -23,6 +24,7 @@ router.get ("/validate-reset/:token",     authController.validateResetToken);
 // Protected
 router.get ("/me",         authMiddleware, authController.getMe);
 router.put ("/me",         authMiddleware, validateUpdateProfile, authController.updateMe);
+router.put ("/me/photo",   authMiddleware, uploadUserAvatar.single("photo"), authController.updateMyPhoto);
 
 // Liked songs (DB-backed, per user)
 router.get ("/liked-songs",         authMiddleware, authController.getLikedSongs);

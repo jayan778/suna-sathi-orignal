@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Home, Library, PlusCircle, ListMusic, Heart, X, Trash2 } from "lucide-react";
+import { Home, Library, PlusCircle, ListMusic, Heart, X, Trash2, Disc3 } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../context/AuthContext";
 
@@ -8,10 +8,12 @@ export default function Sidebar({
   playlists,
   activeMode       = "all",
   activePlaylistId = null,
+  albumCount       = 0,
   onHome,
   onLibrary,
   onSelectPlaylist,
   onSelectLiked,
+  onSelectAlbums,
   onPlaylistsChanged,
   onDeletePlaylist,
 }) {
@@ -183,6 +185,19 @@ export default function Sidebar({
               ))}
             </div>
           )}
+
+          {/* Albums */}
+          <button type="button"
+            onClick={() => { closeDrawer(); onSelectAlbums?.(); }}
+            className={`flex items-center gap-3 w-full p-3 rounded-xl transition-all mt-2 ${
+              activeMode === "albums"
+                ? "bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-white border border-purple-500/50"
+                : "hover:bg-white/5 text-gray-400 hover:text-white"
+            }`}>
+            <Disc3 className="w-5 h-5" />
+            <span>Albums</span>
+            <span className="text-xs bg-white/10 px-2 py-0.5 rounded-full ml-auto">{albumCount}</span>
+          </button>
 
           {/* Liked songs */}
           <button type="button"

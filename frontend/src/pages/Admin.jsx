@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Music2, Users, BarChart3, Plus, TrendingUp,
-  Clock, ListMusic, Radio,
+  Clock, ListMusic, Radio, Pencil,
 } from "lucide-react";
 import api from "../services/api";
+import EditSongModal from "../components/EditSongModal";
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -15,8 +16,15 @@ export default function Admin() {
   const [liveSession, setLiveSession] = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState("");
+  const [editSong,    setEditSong]    = useState(null);
+  const [artists,     setArtists]     = useState([]);
+  const [genres,      setGenres]      = useState([]);
 
-  useEffect(() => { loadDashboardData(); }, []);
+  useEffect(() => {
+    loadDashboardData();
+    api.get("/api/songs/artists").then((r) => setArtists(r.data || [])).catch(() => {});
+    api.get("/api/songs/genres").then((r) => setGenres(r.data || [])).catch(() => {});
+  }, []);
 
   const loadDashboardData = async () => {
     try {
@@ -148,7 +156,7 @@ export default function Admin() {
             <div className="space-y-3">
               {recentSongs.map((song) => (
                 <div key={song._id}
-                  className="flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-all">
+                  className="flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 rounded-xl border border-white/10 transition-all group">
                   <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 flex items-center justify-center flex-shrink-0">
                     <Music2 className="w-6 h-6 text-indigo-400" />
                   </div>
@@ -163,6 +171,13 @@ export default function Admin() {
                         LIVE
                       </span>
                     )}
+                    <button
+                      onClick={() => setEditSong(song)}
+                      className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all opacity-0 group-hover:opacity-100"
+                      title="Edit song"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -216,6 +231,19 @@ export default function Admin() {
           )}
         </div>
       </div>
+
+      {editSong && (
+        <EditSongModal
+          song={editSong}
+          artists={artists}
+          availableGenres={genres}
+          onSave={() => {
+            setEditSong(null);
+            loadDashboardData();
+          }}
+          onClose={() => setEditSong(null)}
+        />
+      )}
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -64,7 +64,7 @@ export default function AddMusic() {
 
   const [form, setForm] = useState({
     name: "", artistId: "", artistName: "", albumId: "",
-    genre: "", year: "", isLiveOnly: false, audio: null, cover: null,
+    genre: "", year: "", isLiveOnly: false, audio: null, cover: null, lyrics: "",
   });
 
   const isValid = form.name.trim() && form.artistName.trim() && form.genre.trim() && String(form.year).trim() && form.audio;
@@ -221,6 +221,7 @@ export default function AddMusic() {
       data.append("genre",      form.genre);
       data.append("year",       form.year);
       data.append("isLiveOnly", form.isLiveOnly);
+      data.append("lyrics",     form.lyrics || "");
       data.append("audio",      form.audio);
       if (form.cover) data.append("cover", form.cover);
 
@@ -228,7 +229,7 @@ export default function AddMusic() {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
-      setForm({ name: "", artistId: "", artistName: "", albumId: "", genre: "", year: "", isLiveOnly: false, audio: null, cover: null });
+      setForm({ name: "", artistId: "", artistName: "", albumId: "", genre: "", year: "", isLiveOnly: false, audio: null, cover: null, lyrics: "" });
       setCoverPreview(null);
       setCustomGenre(false);
       setFileWarning("");
@@ -584,6 +585,20 @@ export default function AddMusic() {
                   setForm((p) => ({ ...p, cover: file }));
                   setCoverPreview(file ? URL.createObjectURL(file) : null);
                 }} />
+            </div>
+
+            {/* Lyrics */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">
+                Lyrics <span className="text-gray-500 font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={form.lyrics}
+                onChange={(e) => setForm((p) => ({ ...p, lyrics: e.target.value }))}
+                placeholder="Paste song lyrics here..."
+                rows={5}
+                className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all resize-none text-sm leading-relaxed"
+              />
             </div>
 
             {/* Audio file */}

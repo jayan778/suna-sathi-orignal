@@ -140,7 +140,7 @@ exports.updateArtistPhoto = async (req, res) => {
 /* ADD SONG (ADMIN) */
 exports.addSong = async (req, res) => {
   try {
-    const { name, artist, artistId, genre, year, isLiveOnly, albumId } = req.body;
+    const { name, artist, artistId, genre, year, isLiveOnly, albumId, lyrics } = req.body;
     const audioFile = req.files?.audio?.[0];
     const coverFile = req.files?.cover?.[0];
 
@@ -180,6 +180,7 @@ exports.addSong = async (req, res) => {
       cover:      coverFile ? `covers/${coverFile.filename}` : "",
       duration,
       isLiveOnly: isLiveOnly === "true" || isLiveOnly === true,
+      lyrics:     lyrics || "",
       createdBy:  req.user.id,
     });
 
@@ -276,15 +277,17 @@ exports.updateSong = async (req, res) => {
     const song = await Song.findById(req.params.id);
     if (!song) return res.status(404).json({ message: "Song not found" });
 
-    const { name, artist, artistId, albumId, genre, year, isLiveOnly, removeCover } = req.body;
+    const { name, artist, artistId, albumId, genre, year, isLiveOnly, removeCover, lyrics } = req.body;
+    console.log("UPDATE SONG - lyrics received:", JSON.stringify(lyrics));
     const audioFile = req.files?.audio?.[0];
     const coverFile = req.files?.cover?.[0];
     const uploadsDir = path.resolve(__dirname, "../uploads");
 
-    if (name)   song.name   = name.trim();
-    if (artist) song.artist = artist.trim();
-    if (genre)  song.genre  = genre.trim();
-    if (year)   song.year   = year;
+    if (name)              song.name    = name.trim();
+    if (artist)            song.artist  = artist.trim();
+    if (genre)             song.genre   = genre.trim();
+    if (year)              song.year    = year;
+    if (lyrics !== undefined) song.lyrics = lyrics || "";
     if (isLiveOnly !== undefined) song.isLiveOnly = isLiveOnly === "true" || isLiveOnly === true;
 
     if (artistId !== undefined) {

@@ -59,19 +59,6 @@ const Home = () => {
                 </span>
               </button>
 
-              <button
-                className="px-8 py-4 rounded-xl font-semibold text-base
-                  bg-white/5 backdrop-blur-xl border border-white/10
-                  hover:bg-white/10 hover:border-white/20
-                  transition-all duration-300"
-              >
-                <span className="flex items-center gap-2">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
-                  </svg>
-                  Watch Demo
-                </span>
-              </button>
             </div>
 
             {/* Trust indicators */}

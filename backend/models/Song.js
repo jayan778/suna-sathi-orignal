@@ -11,6 +11,7 @@ const songSchema = new mongoose.Schema(
     cover:      { type: String,  default: "" },
     duration:   { type: Number,  default: 0 },
     albumId:    { type: mongoose.Schema.Types.ObjectId, ref: "Album",  default: null },
+    lyrics:     { type: String,  default: "" },
     isLiveOnly: { type: Boolean, default: false },
     createdBy:  { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },

@@ -74,9 +74,12 @@ export default function AdminLive() {
           if (sessionRes.data.currentSong && mounted) {
             const seekTo = sessionRes.data.positionInSong || 0;
             try {
-              await liveAudio.loadLiveAndPlay(sessionRes.data.currentSong, seekTo);
+              await Promise.race([
+                liveAudio.loadLiveAndPlay(sessionRes.data.currentSong, seekTo),
+                new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+              ]);
             } catch {
-              // Autoplay blocked
+              // Autoplay blocked or timeout — still show the page
             }
           }
         }

@@ -16,6 +16,7 @@ export default function EditSongModal({ song, artists, availableGenres, albums =
     genre:      song.genre      || "",
     year:       String(song.year || ""),
     isLiveOnly: !!song.isLiveOnly,
+    lyrics:     song.lyrics     || "",
   });
 
   const [audioFile,    setAudioFile]    = useState(null);
@@ -87,6 +88,7 @@ export default function EditSongModal({ song, artists, availableGenres, albums =
       data.append("genre",       form.genre.trim());
       data.append("year",        form.year);
       data.append("isLiveOnly",  String(form.isLiveOnly));
+      data.append("lyrics",      form.lyrics || "");
       data.append("removeCover", String(removeCover && !coverFile));
       if (audioFile) data.append("audio", audioFile);
       if (coverFile) data.append("cover", coverFile);
@@ -262,6 +264,20 @@ export default function EditSongModal({ song, artists, availableGenres, albums =
               </div>
             </div>
           )}
+
+          {/* Lyrics */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+              Lyrics <span className="text-gray-500 font-normal text-xs">(optional)</span>
+            </label>
+            <textarea
+              value={form.lyrics}
+              onChange={(e) => setForm((p) => ({ ...p, lyrics: e.target.value }))}
+              placeholder="Paste song lyrics here..."
+              rows={5}
+              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500/50 transition-all resize-none text-sm leading-relaxed"
+            />
+          </div>
 
           {/* Genre + Year */}
           <div className="grid grid-cols-2 gap-4">

@@ -15,6 +15,29 @@ import { connectSocket } from "../services/socket";
 
 const AUDIOBASE = `${import.meta.env.VITE_API_URL || "http://localhost:5000"}/uploads`;
 
+const parseLRC = (lrc) => {
+  if (!lrc) return null;
+  const timeRe = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g;
+  const hasTimestamps = timeRe.test(lrc);
+  if (!hasTimestamps) return null; // plain text, not LRC
+
+  const lines = lrc.split("\n");
+  const result = [];
+  for (const line of lines) {
+    const text = line.replace(/\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]/g, "").trim();
+    if (!text) continue;
+    const re = /\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]/g;
+    let m;
+    while ((m = re.exec(line)) !== null) {
+      const mm = parseInt(m[1]);
+      const ss = parseInt(m[2]);
+      const ms = m[3] ? parseInt(m[3].padEnd(3, "0")) : 0;
+      result.push({ time: mm * 60 + ss + ms / 1000, text });
+    }
+  }
+  return result.sort((a, b) => a.time - b.time);
+};
+
 const RECENT_KEY = "recentSongIds";
 const MAX_RECENT = 6;
 
@@ -86,6 +109,61 @@ export default function Dashboard() {
   const [timerRemainingSeconds, setTimerRemainingSeconds] = useState(0);
   const [showTimerModal,        setShowTimerModal]        = useState(false);
   const timerRef = useRef(null);
+
+  // ── Lyrics ─────────────────────────────────────────────
+  const [showLyrics,   setShowLyrics]   = useState(false);
+  const [parsedLyrics, setParsedLyrics] = useState(null);
+  const [activeLine,   setActiveLine]   = useState(0);
+  const [lyricsOffset, setLyricsOffset] = useState(0);
+  const [syncMode,     setSyncMode]     = useState(false);
+  const lyricsContainerRef = useRef(null);
+  const activeLineRef      = useRef(null);
+
+  const LYRICS_OFFSET_KEY = (id) => `lyrics_offset_${id}`;
+
+  // ── Parse lyrics when song changes ────────────────────
+  useEffect(() => {
+    setParsedLyrics(parseLRC(currentSong?.lyrics));
+    setActiveLine(0);
+    setSyncMode(false);
+    const saved = currentSong?._id
+      ? parseFloat(localStorage.getItem(LYRICS_OFFSET_KEY(currentSong._id)) || "0")
+      : 0;
+    setLyricsOffset(saved);
+  }, [currentSong?._id]);
+
+  // ── Update active lyric line as song plays ─────────────
+  useEffect(() => {
+    if (!parsedLyrics || parsedLyrics.length === 0) return;
+    const adjustedTime = currentTime - lyricsOffset;
+    let idx = 0;
+    for (let i = 0; i < parsedLyrics.length; i++) {
+      if (adjustedTime >= parsedLyrics[i].time) {
+        idx = i;
+      } else {
+        break;
+      }
+    }
+    setActiveLine((prev) => (prev !== idx ? idx : prev));
+  }, [currentTime, parsedLyrics, lyricsOffset]);
+
+  // ── Auto-scroll active line into view ─────────────────
+  useEffect(() => {
+    if (!showLyrics || !activeLineRef.current || !lyricsContainerRef.current) return;
+    activeLineRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [activeLine, showLyrics]);
+
+  // ── Tap to sync ────────────────────────────────────────
+  const handleLyricTap = (lineIndex) => {
+    if (!syncMode || !parsedLyrics) return;
+    const newOffset = currentTime - parsedLyrics[lineIndex].time;
+    const rounded = Math.round(newOffset * 10) / 10;
+    setLyricsOffset(rounded);
+    if (currentSong?._id) {
+      localStorage.setItem(LYRICS_OFFSET_KEY(currentSong._id), String(rounded));
+    }
+    setSyncMode(false);
+  };
 
   // ── Live session notification ──────────────────────────
   const [liveSession,      setLiveSession]      = useState(null);
@@ -1439,6 +1517,68 @@ export default function Dashboard() {
                       </div>
                     </div>
 
+                    {/* Lyrics card */}
+                    {currentSong?.lyrics && (
+                      <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden">
+                        <button
+                          onClick={() => setShowLyrics((v) => !v)}
+                          className="w-full flex items-center justify-between px-5 py-4 hover:bg-white/5 transition-colors"
+                        >
+                          <h3 className="font-semibold text-white text-sm">Lyrics</h3>
+                          <span className={`text-xs font-medium transition-colors ${showLyrics ? "text-indigo-400" : "text-gray-500"}`}>
+                            {showLyrics ? "Hide" : "Show"}
+                          </span>
+                        </button>
+                        {showLyrics && (
+                          <div className="border-t border-white/10">
+                            {parsedLyrics && (
+                              <div className="flex items-center justify-between px-5 py-2 bg-white/3 border-b border-white/5">
+                                {syncMode ? (
+                                  <p className="text-xs text-indigo-300 animate-pulse">👆 Tap the line you currently hear...</p>
+                                ) : (
+                                  <span className="text-xs text-gray-600">
+                                    {lyricsOffset !== 0 ? `offset: ${lyricsOffset > 0 ? "+" : ""}${lyricsOffset.toFixed(1)}s` : "synced"}
+                                  </span>
+                                )}
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => setSyncMode((v) => !v)}
+                                    className={`px-2 py-0.5 rounded text-xs transition-colors ${syncMode ? "bg-indigo-500/30 text-indigo-300" : "bg-white/5 hover:bg-white/10 text-gray-400"}`}>
+                                    {syncMode ? "Cancel" : "Tap to Sync"}
+                                  </button>
+                                  {lyricsOffset !== 0 && !syncMode && (
+                                    <button onClick={() => { setLyricsOffset(0); if (currentSong?._id) localStorage.removeItem(LYRICS_OFFSET_KEY(currentSong._id)); }}
+                                      className="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-gray-500 text-xs">Reset</button>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                            <div ref={lyricsContainerRef} className="px-5 pb-5 max-h-64 overflow-y-auto">
+                              {parsedLyrics ? (
+                                <div className="space-y-1 text-center pt-4">
+                                  {parsedLyrics.map((line, i) => (
+                                    <p key={i} ref={i === activeLine ? activeLineRef : null}
+                                      onClick={() => handleLyricTap(i)}
+                                      className={`leading-7 transition-all duration-300 rounded-lg px-2 ${
+                                        syncMode ? "cursor-pointer hover:bg-indigo-500/10 hover:text-indigo-300 text-sm text-gray-400" :
+                                        i === activeLine ? "text-white font-bold text-base" :
+                                        i < activeLine ? "text-gray-600 text-sm" : "text-gray-400 text-sm"
+                                      }`}>
+                                      {line.text}
+                                    </p>
+                                  ))}
+                                </div>
+                              ) : (
+                                <pre className="text-sm text-gray-300 whitespace-pre-wrap leading-7 font-sans pt-4">
+                                  {currentSong.lyrics}
+                                </pre>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Return to live stream card */}
                     {liveStreamActive && (
                       <Link
@@ -1561,6 +1701,20 @@ export default function Dashboard() {
                   </Link>
                 )}
 
+                {/* Lyrics toggle */}
+                {currentSong?.lyrics && (
+                  <button
+                    onClick={() => setShowLyrics((v) => !v)}
+                    className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs font-bold transition-all flex-shrink-0 ${
+                      showLyrics
+                        ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300"
+                        : "bg-white/5 hover:bg-white/10 border-white/10 text-gray-400 hover:text-white"
+                    }`}
+                    title="Show lyrics">
+                    <span className="text-[10px] font-semibold">LRC</span>
+                  </button>
+                )}
+
                 {/* Open full player */}
                 <button
                   onClick={() => setView("player")}
@@ -1569,6 +1723,51 @@ export default function Dashboard() {
                   <ChevronUp className="w-4 h-4" />
                 </button>
               </div>
+
+              {/* Lyrics panel */}
+              {showLyrics && currentSong?.lyrics && (
+                <div className="border-t border-white/10 bg-black/20">
+                  {parsedLyrics && (
+                    <div className="flex items-center justify-between px-4 py-1.5 border-b border-white/5">
+                      {syncMode
+                        ? <p className="text-xs text-indigo-300 animate-pulse">👆 Tap the line you hear now...</p>
+                        : <span className="text-xs text-gray-600">{lyricsOffset !== 0 ? `offset: ${lyricsOffset > 0 ? "+" : ""}${lyricsOffset.toFixed(1)}s` : "synced"}</span>
+                      }
+                      <div className="flex gap-1">
+                        <button onClick={() => setSyncMode((v) => !v)}
+                          className={`px-1.5 py-0.5 rounded text-xs transition-colors ${syncMode ? "bg-indigo-500/30 text-indigo-300" : "bg-white/5 hover:bg-white/10 text-gray-400"}`}>
+                          {syncMode ? "Cancel" : "Tap Sync"}
+                        </button>
+                        {lyricsOffset !== 0 && !syncMode && (
+                          <button onClick={() => { setLyricsOffset(0); if (currentSong?._id) localStorage.removeItem(LYRICS_OFFSET_KEY(currentSong._id)); }}
+                            className="px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 text-gray-500 text-xs">Reset</button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  <div ref={lyricsContainerRef} className="px-4 py-3 max-h-48 overflow-y-auto">
+                    {parsedLyrics ? (
+                      <div className="space-y-1 text-center">
+                        {parsedLyrics.map((line, i) => (
+                          <p key={i} ref={i === activeLine ? activeLineRef : null}
+                            onClick={() => handleLyricTap(i)}
+                            className={`leading-7 transition-all duration-300 rounded px-1 ${
+                              syncMode ? "cursor-pointer hover:bg-indigo-500/10 hover:text-indigo-300 text-sm text-gray-400" :
+                              i === activeLine ? "text-white font-semibold text-base" :
+                              i < activeLine ? "text-gray-600 text-sm" : "text-gray-400 text-sm"
+                            }`}>
+                            {line.text}
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <pre className="text-sm text-gray-300 whitespace-pre-wrap leading-7 font-sans">
+                        {currentSong.lyrics}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

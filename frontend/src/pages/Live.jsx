@@ -106,7 +106,14 @@ export default function Live() {
         // Start playing from the correct position reported by server
         const seekTo = res.data.positionInSong || 0;
         if (res.data.currentSong && mounted) {
-          await tryLoadAndPlay(res.data.currentSong, seekTo);
+          try {
+            await Promise.race([
+              tryLoadAndPlay(res.data.currentSong, seekTo),
+              new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
+            ]);
+          } catch {
+            // Autoplay blocked or timeout — still show the page
+          }
         }
 
       } catch (err) {
